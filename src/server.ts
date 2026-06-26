@@ -742,7 +742,7 @@ class BotRunner {
       status: "running",
       startedAt: new Date().toISOString(),
       startedMs: Date.now(),
-      durationMs: clampInteger(options.durationMs ?? defaults.durationMs, 5_000, 600_000),
+      durationMs: clampInteger(options.durationMs ?? defaults.durationMs, 5_000, 3_600_000),
       intervalMs: clampInteger(options.intervalMs ?? defaults.intervalMs, 100, 10_000),
       maxActions: clampInteger(options.maxActions ?? defaults.maxActions, 1, 5_000),
       maxReconnects: clampInteger(options.maxReconnects ?? defaultReconnectLimit(mode), 0, 100),
@@ -2719,7 +2719,7 @@ function asPlainRecord(value: unknown): Record<string, unknown> {
 
 function defaultBotOptions(mode: BotMode): Required<Pick<BotRunOptions, "durationMs" | "intervalMs" | "maxActions">> {
   if (mode === "win") {
-    return { durationMs: 600_000, intervalMs: 700, maxActions: 2_000 };
+    return { durationMs: 3_600_000, intervalMs: 700, maxActions: 5_000 };
   }
   if (mode === "stress") {
     return { durationMs: 60_000, intervalMs: 125, maxActions: 600 };
@@ -2972,7 +2972,7 @@ const INDEX_HTML = String.raw`<!doctype html>
             <option value="stress">stress</option>
             <option value="win">win</option>
           </select>
-          <input id="bot-duration" aria-label="Bot seconds" type="number" min="5" max="600" value="60">
+          <input id="bot-duration" aria-label="Bot seconds" type="number" min="5" max="3600" value="600">
         </div>
         <input id="bot-account" autocomplete="off" spellcheck="false" placeholder="Account username">
         <input id="bot-password" autocomplete="off" spellcheck="false" type="password" placeholder="Account password">
