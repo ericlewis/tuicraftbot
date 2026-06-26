@@ -1220,6 +1220,12 @@ class BotRunner {
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossAvoidDistance
       ) {
+        if (hpRatio > 0.65) {
+          const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+          if (awayStep) {
+            return { label: "lure boss away from entrance", key: awayStep };
+          }
+        }
         return { label: "bail from nearby boss", command: "/stuck" };
       }
       if (
@@ -1227,6 +1233,12 @@ class BotRunner {
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossContactDistance
       ) {
+        if (hpRatio > 0.65) {
+          const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+          if (awayStep) {
+            return { label: "lure boss away from entrance", key: awayStep };
+          }
+        }
         return { label: "bail from early boss contact", command: "/stuck" };
       }
       if (this.nextMerchantCommand(state, run.tuning) && !canFightQuestBoss) {
@@ -1388,7 +1400,7 @@ class BotRunner {
       return false;
     }
     const label = action.label.toLowerCase();
-    if (label.includes("sidestep elite target") || label.includes("chip elite target")) {
+    if (label.includes("sidestep elite target") || label.includes("chip elite target") || label.includes("lure boss")) {
       return false;
     }
     return Boolean(
