@@ -7,10 +7,14 @@ Local API and browser console for instrumenting the SSH-hosted TUICraft game at
 
 ```sh
 bun install
-bun run start
+bun run dev
 ```
 
 Open `http://localhost:8787`.
+
+`bun run dev` uses Bun hot reload and keeps the local process alive while
+reloading the HTTP handler and bot methods. Use `bun run dev:restart` only when
+you intentionally want file changes to restart the whole process.
 
 ## Configuration
 
@@ -64,6 +68,16 @@ used only for the login prompt and are redacted from raw telemetry:
 curl -X POST http://localhost:8787/api/bot/start \
   -H 'content-type: application/json' \
   --data '{"mode":"win","accountUsername":"codex...","accountPassword":"...","characterName":"Codex..."}'
+```
+
+The same resume flow is available as an environment-driven helper so credentials
+do not need to be committed:
+
+```sh
+BOT_ACCOUNT_USERNAME=codex... \
+BOT_ACCOUNT_PASSWORD=... \
+BOT_CHARACTER_NAME=Codex... \
+bun run bot:resume
 ```
 
 Modes:

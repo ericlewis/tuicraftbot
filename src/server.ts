@@ -149,6 +149,16 @@ class GameBridge {
     this.terminal = this.createTerminal(options.cols, options.rows);
   }
 
+  configure(options: BridgeOptions): void {
+    const resized = options.cols !== this.options.cols || options.rows !== this.options.rows;
+    this.options = options;
+    if (resized) {
+      this.terminal.resize(options.cols, options.rows);
+      this.channel?.setWindow(options.rows, options.cols, options.height, options.width);
+      this.emit("screen", this.getScreen());
+    }
+  }
+
   getEvents(limit?: number): InstrumentEvent[] {
     return this.events.toArray(limit);
   }
@@ -541,7 +551,11 @@ class BotRunner {
   private run?: BotRunState;
   private readonly logs = new RingBuffer<BotLog>(1000);
 
-  constructor(private readonly bridge: GameBridge) {}
+  constructor(private bridge: GameBridge) {}
+
+  retarget(bridge: GameBridge): void {
+    this.bridge = bridge;
+  }
 
   getSummary(): BotRunSummary {
     if (!this.run) {
@@ -1270,103 +1284,168 @@ class BotRunner {
   }
 }
 
-const bridge = new GameBridge({
-  host: process.env.WORLD_TUICRAFT_HOST ?? "worldoftuicraft.thoughtlesslabs.com",
-  port: readIntegerEnv("WORLD_TUICRAFT_PORT", 22),
-  username: process.env.WORLD_TUICRAFT_USER ?? process.env.USER ?? "player",
-  cols: readIntegerEnv("WORLD_TUICRAFT_COLS", 120),
-  rows: readIntegerEnv("WORLD_TUICRAFT_ROWS", 36),
-  width: readIntegerEnv("WORLD_TUICRAFT_WIDTH", 1200),
-  height: readIntegerEnv("WORLD_TUICRAFT_HEIGHT", 720),
-  expectedFingerprint: process.env.WORLD_TUICRAFT_HOST_FINGERPRINT
-});
-const bot = new BotRunner(bridge);
+type HttpServer = ReturnType<typeof Bun.serve>;
 
+type AppHotState = {
+  bridge?: GameBridge;
+  bot?: BotRunner;
+  server?: HttpServer;
+  port?: number;
+};
+
+type AppHotGlobal = typeof globalThis & {
+  __worldOfTuicraftInstrumentation?: AppHotState;
+};
+
+const appState = getAppHotState();
+const bridge = reuseBridge(appState, readBridgeOptions());
+const bot = reuseBot(appState, bridge);
 const port = readIntegerEnv("PORT", 8787);
+const isHotReload = Boolean(appState.server && appState.port === port);
+const server = await startHttpServer(appState, port);
 
-const server = Bun.serve({
-  port,
-  idleTimeout: 255,
-  async fetch(request) {
-    const url = new URL(request.url);
-
-    try {
-      if (request.method === "OPTIONS") {
-        return new Response(null, { status: 204, headers: corsHeaders() });
-      }
-      if (request.method === "GET" && url.pathname === "/") {
-        return html(INDEX_HTML);
-      }
-      if (request.method === "GET" && url.pathname === "/api/session") {
-        return json(bridge.getSummary());
-      }
-      if (request.method === "POST" && url.pathname === "/api/session/start") {
-        await bridge.start();
-        return json(bridge.getSummary());
-      }
-      if (request.method === "POST" && url.pathname === "/api/session/restart") {
-        await bridge.restart();
-        return json(bridge.getSummary());
-      }
-      if (request.method === "POST" && url.pathname === "/api/session/stop") {
-        bridge.stop();
-        return json(bridge.getSummary());
-      }
-      if (request.method === "GET" && url.pathname === "/api/screen") {
-        return json(bridge.getScreen());
-      }
-      if (request.method === "GET" && url.pathname === "/api/raw") {
-        return json({ chunks: bridge.getRaw(readLimit(url, 50)) });
-      }
-      if (request.method === "GET" && url.pathname === "/api/bot") {
-        return json(bot.getSummary());
-      }
-      if (request.method === "GET" && url.pathname === "/api/bot/log") {
-        return json({ logs: bot.getLogs(readLimit(url, 100)) });
-      }
-      if (request.method === "POST" && url.pathname === "/api/bot/start") {
-        const body = await readJson(request);
-        return json(bot.start(parseBotOptions(body)));
-      }
-      if (request.method === "POST" && url.pathname === "/api/bot/stop") {
-        return json(bot.stop());
-      }
-      if (request.method === "GET" && url.pathname === "/api/events") {
-        return eventStream(bridge);
-      }
-      if (request.method === "POST" && url.pathname === "/api/input") {
-        const body = await readJson(request);
-        bridge.sendInput({
-          key: stringValue(body.key),
-          text: stringValue(body.text),
-          repeat: numberValue(body.repeat),
-          source: "api",
-          redact: Boolean(body.redact)
-        });
-        return json({ ok: true, session: bridge.getSummary() });
-      }
-      if (request.method === "POST" && url.pathname === "/api/resize") {
-        const body = await readJson(request);
-        const cols = clampInteger(numberValue(body.cols) ?? 120, 20, 300);
-        const rows = clampInteger(numberValue(body.rows) ?? 36, 10, 120);
-        const width = clampInteger(numberValue(body.width) ?? cols * 10, 100, 5000);
-        const height = clampInteger(numberValue(body.height) ?? rows * 20, 100, 5000);
-        return json(bridge.resize(cols, rows, width, height));
-      }
-    } catch (error) {
-      return json({ error: error instanceof Error ? error.message : String(error) }, 500);
-    }
-
-    return json({ error: "Not found" }, 404);
-  }
-});
-
-console.log(`World of TUICraft instrumentation API listening on http://localhost:${server.port}`);
+console.log(
+  `World of TUICraft instrumentation API ${isHotReload ? "hot-reloaded" : "listening"} on http://localhost:${server.port}`
+);
 
 if (process.env.WORLD_TUICRAFT_AUTOSTART !== "false") {
   bridge.start().catch((error) => {
     console.error("Failed to start TUICraft session:", error);
   });
+}
+
+function getAppHotState(): AppHotState {
+  const hotGlobal = globalThis as AppHotGlobal;
+  hotGlobal.__worldOfTuicraftInstrumentation ??= {};
+  return hotGlobal.__worldOfTuicraftInstrumentation;
+}
+
+function readBridgeOptions(): BridgeOptions {
+  return {
+    host: process.env.WORLD_TUICRAFT_HOST ?? "worldoftuicraft.thoughtlesslabs.com",
+    port: readIntegerEnv("WORLD_TUICRAFT_PORT", 22),
+    username: process.env.WORLD_TUICRAFT_USER ?? process.env.USER ?? "player",
+    cols: readIntegerEnv("WORLD_TUICRAFT_COLS", 120),
+    rows: readIntegerEnv("WORLD_TUICRAFT_ROWS", 36),
+    width: readIntegerEnv("WORLD_TUICRAFT_WIDTH", 1200),
+    height: readIntegerEnv("WORLD_TUICRAFT_HEIGHT", 720),
+    expectedFingerprint: process.env.WORLD_TUICRAFT_HOST_FINGERPRINT
+  };
+}
+
+function reuseBridge(state: AppHotState, options: BridgeOptions): GameBridge {
+  if (!state.bridge) {
+    state.bridge = new GameBridge(options);
+    return state.bridge;
+  }
+  Object.setPrototypeOf(state.bridge, GameBridge.prototype);
+  state.bridge.configure(options);
+  return state.bridge;
+}
+
+function reuseBot(state: AppHotState, activeBridge: GameBridge): BotRunner {
+  if (!state.bot) {
+    state.bot = new BotRunner(activeBridge);
+    return state.bot;
+  }
+  Object.setPrototypeOf(state.bot, BotRunner.prototype);
+  state.bot.retarget(activeBridge);
+  return state.bot;
+}
+
+async function startHttpServer(state: AppHotState, requestedPort: number): Promise<HttpServer> {
+  const options = createServeOptions(requestedPort);
+  if (state.server && state.port === requestedPort) {
+    state.server = state.server.reload(options);
+    return state.server;
+  }
+  if (state.server) {
+    await state.server.stop(true);
+  }
+  state.server = Bun.serve(options);
+  state.port = requestedPort;
+  return state.server;
+}
+
+function createServeOptions(requestedPort: number) {
+  return {
+    port: requestedPort,
+    idleTimeout: 255,
+    fetch: handleRequest
+  };
+}
+
+async function handleRequest(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+
+  try {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders() });
+    }
+    if (request.method === "GET" && url.pathname === "/") {
+      return html(INDEX_HTML);
+    }
+    if (request.method === "GET" && url.pathname === "/api/session") {
+      return json(bridge.getSummary());
+    }
+    if (request.method === "POST" && url.pathname === "/api/session/start") {
+      await bridge.start();
+      return json(bridge.getSummary());
+    }
+    if (request.method === "POST" && url.pathname === "/api/session/restart") {
+      await bridge.restart();
+      return json(bridge.getSummary());
+    }
+    if (request.method === "POST" && url.pathname === "/api/session/stop") {
+      bridge.stop();
+      return json(bridge.getSummary());
+    }
+    if (request.method === "GET" && url.pathname === "/api/screen") {
+      return json(bridge.getScreen());
+    }
+    if (request.method === "GET" && url.pathname === "/api/raw") {
+      return json({ chunks: bridge.getRaw(readLimit(url, 50)) });
+    }
+    if (request.method === "GET" && url.pathname === "/api/bot") {
+      return json(bot.getSummary());
+    }
+    if (request.method === "GET" && url.pathname === "/api/bot/log") {
+      return json({ logs: bot.getLogs(readLimit(url, 100)) });
+    }
+    if (request.method === "POST" && url.pathname === "/api/bot/start") {
+      const body = await readJson(request);
+      return json(bot.start(parseBotOptions(body)));
+    }
+    if (request.method === "POST" && url.pathname === "/api/bot/stop") {
+      return json(bot.stop());
+    }
+    if (request.method === "GET" && url.pathname === "/api/events") {
+      return eventStream(bridge);
+    }
+    if (request.method === "POST" && url.pathname === "/api/input") {
+      const body = await readJson(request);
+      bridge.sendInput({
+        key: stringValue(body.key),
+        text: stringValue(body.text),
+        repeat: numberValue(body.repeat),
+        source: "api",
+        redact: Boolean(body.redact)
+      });
+      return json({ ok: true, session: bridge.getSummary() });
+    }
+    if (request.method === "POST" && url.pathname === "/api/resize") {
+      const body = await readJson(request);
+      const cols = clampInteger(numberValue(body.cols) ?? 120, 20, 300);
+      const rows = clampInteger(numberValue(body.rows) ?? 36, 10, 120);
+      const width = clampInteger(numberValue(body.width) ?? cols * 10, 100, 5000);
+      const height = clampInteger(numberValue(body.height) ?? rows * 20, 100, 5000);
+      return json(bridge.resize(cols, rows, width, height));
+    }
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+  }
+
+  return json({ error: "Not found" }, 404);
 }
 
 function eventStream(activeBridge: GameBridge): Response {
