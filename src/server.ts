@@ -1198,7 +1198,7 @@ class BotRunner {
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
       const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
       const lowLevelFarming = state.level < 3 && !questBossRun;
-      const lowLevelHealFloor = lowLevelFarming ? 0.55 : 0;
+      const lowLevelHealFloor = lowLevelFarming ? 0.7 : 0;
       const unsafeHealThreshold = Math.max(run.tuning.unsafeTargetHealHpRatio, lowLevelHealFloor);
       if (!questBossRun && state.mapLevel && state.mapLevel > allowedTargetLevel) {
         return { label: "bail from over-depth dungeon", command: "/stuck" };
@@ -1223,7 +1223,7 @@ class BotRunner {
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossAvoidDistance
       ) {
-        if (hpRatio > 0.65) {
+        if (hpRatio > 0.85) {
           const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
           if (awayStep) {
             return { label: "lure boss away from entrance", key: awayStep };
@@ -1236,7 +1236,7 @@ class BotRunner {
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossContactDistance
       ) {
-        if (hpRatio > 0.65) {
+        if (hpRatio > 0.85) {
           const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
           if (awayStep) {
             return { label: "lure boss away from entrance", key: awayStep };
