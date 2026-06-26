@@ -1081,6 +1081,9 @@ class BotRunner {
     const sellableItemMatch = /Sellable Items:/i.test(screen.text) ? screen.text.match(/\[(\d+)\]\s+[^\n│]+?\(\+?\d+g\)/) : undefined;
     const targetPanelText = screen.text.match(/--- Target ---([\s\S]*?)(?:--- Legend ---|Nearby:|┌─ Combat Log|$)/)?.[1] ?? "";
     const targetLevelMatch = targetPanelText.match(/Level:\s*(\d+)/);
+    const inTown = Boolean(mapName && /Town|Abbey/i.test(mapName));
+    const inDungeon = Boolean(mapName && !/Town|Abbey/i.test(mapName));
+    const deathTextVisible = /You are dead|You have died/i.test(screen.text);
     const grid: string[][] = [];
     const entities: GameEntity[] = [];
     let player: Point | undefined;
@@ -1112,15 +1115,15 @@ class BotRunner {
       targetLevel: targetLevelMatch ? Number(targetLevelMatch[1]) : undefined,
       targetIsEliteOrBoss: /elite|boss|\*/i.test(targetPanelText),
       targetText: targetPanelText ? normalizeWhitespace(targetPanelText).slice(0, 160) : undefined,
-      inTown: Boolean(mapName && /Town|Abbey/i.test(mapName)),
-      inDungeon: Boolean(mapName && !/Town|Abbey/i.test(mapName)),
+      inTown,
+      inDungeon,
       player,
       entities,
       grid,
       text: screen.text,
       questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill|Quest:\s*Elite Slayer/i.test(screen.text),
       questComplete: /Status:\s*Complete|Quest complete|Reward claimed/i.test(screen.text),
-      dead: hpMatch ? Number(hpMatch[1]) <= 0 : /You are dead|You have died/i.test(screen.text),
+      dead: hpMatch ? Number(hpMatch[1]) <= 0 : deathTextVisible && !inTown,
       winText: this.hasSystemWinText(screen)
     };
   }
