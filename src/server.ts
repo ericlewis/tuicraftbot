@@ -1565,8 +1565,8 @@ class BotRunner {
       entities,
       grid,
       text: screen.text,
-      questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill|Quest:\s*Elite Slayer/i.test(screen.text),
-      questComplete: /Status:\s*Complete|Quest complete|Reward claimed/i.test(screen.text),
+      questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill|Quest:\s*Elite Slayer\s*\(Ready!\)/i.test(screen.text),
+      questComplete: /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest complete|Reward claimed/i.test(screen.text),
       dead: hpMatch ? Number(hpMatch[1]) <= 0 : deathTextVisible && !inTown,
       winText: this.hasSystemWinText(screen)
     };

@@ -228,7 +228,14 @@ server.registerTool(
   },
   async ({ command }) => {
     const trimmed = command.trim();
-    return textResult(await apiPost(apiBase(), "/api/input", { text: `${trimmed}\r` }));
+    const base = apiBase();
+    await apiPost(base, "/api/input", { key: "escape" });
+    await sleep(40);
+    await apiPost(base, "/api/input", { text: "/" });
+    await sleep(80);
+    await apiPost(base, "/api/input", { text: trimmed.startsWith("/") ? trimmed : `/${trimmed}` });
+    await sleep(40);
+    return textResult(await apiPost(base, "/api/input", { key: "enter" }));
   }
 );
 
@@ -319,6 +326,10 @@ async function apiPost<T = unknown>(base: string, path: string, body: unknown): 
     body: JSON.stringify(body)
   });
   return parseApiResponse<T>(response);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function parseApiResponse<T>(response: Response): Promise<T> {
