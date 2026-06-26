@@ -913,6 +913,9 @@ class BotRunner {
       if (!canFightQuestBoss && nearestBoss !== undefined && nearestBoss <= 1) {
         return { label: "bail from early boss contact", command: "/stuck" };
       }
+      if (this.nextMerchantCommand(state) && !canFightQuestBoss) {
+        return { label: "bail to buy upgrade", command: "/stuck" };
+      }
       const targetIsRisky = Boolean(
         state.targetLevel &&
           (state.targetLevel > allowedTargetLevel || (state.targetIsEliteOrBoss && !canFightQuestBoss))
@@ -953,7 +956,7 @@ class BotRunner {
       }
     }
 
-    return this.nextExplorationAction(run, false);
+    return this.nextWinProbeAction(run);
   }
 
   private savedPortalAction(run: BotRunState, state: ParsedGameState): BotAction {
@@ -973,6 +976,12 @@ class BotRunner {
       weaponUpgrade >= 2 &&
       armorUpgrade >= 2
     );
+  }
+
+  private nextWinProbeAction(run: BotRunState): BotAction {
+    const movement = ["w", "d", "s", "a"] as const;
+    const key = movement[run.actionCount % movement.length];
+    return { label: `probe win path ${key.toUpperCase()}`, key };
   }
 
   private parseGameState(screen: ScreenSnapshot): ParsedGameState {
