@@ -97,3 +97,28 @@ API alive, logs reconnect attempts, and resumes within its duration/action
 budget when the game returns.
 
 Generated bot passwords are redacted in `/api/raw`.
+
+## State art generator
+
+Generate a consistent TUICraft tactical concept prompt from the current local
+screen:
+
+```sh
+bun run art:state -- --prompt-only
+```
+
+With `OPENAI_API_KEY` set, the script calls the OpenAI Images API. Pass the
+reference image to keep the same portrait/map composition and style:
+
+```sh
+OPENAI_API_KEY=... \
+bun run art:state -- \
+  --reference "/Users/ericlewis/Downloads/Generated image 1.png" \
+  --out output/tuicraft-state.png
+```
+
+Defaults are `gpt-image-2`, `2048x1152`, and `medium` quality. Override them
+with `--model`, `--size`, and `--quality`, or the `TUICRAFT_ART_MODEL`,
+`TUICRAFT_ART_SIZE`, and `TUICRAFT_ART_QUALITY` environment variables. Use
+`--template` to ignore the live screen and regenerate from the base
+Codex9tqnwg/Northshire/Fargodeep template.

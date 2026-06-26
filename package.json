@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun --hot --no-clear-screen src/server.ts",
     "dev:restart": "bun --watch src/server.ts",
+    "art:state": "bun scripts/generate-state-art.ts",
     "bot:resume": "bun scripts/resume-win.ts",
     "start": "bun src/server.ts",
     "check": "tsc --noEmit"
