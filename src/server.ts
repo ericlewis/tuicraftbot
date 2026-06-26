@@ -858,6 +858,10 @@ class BotRunner {
         return merchantCommand;
       }
 
+      if (/Dungeon Portal|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
+        return { label: "enter saved dungeon portal", command: state.level >= 3 ? "/enter 2" : "/enter 1" };
+      }
+
       if (run.questComplete || state.questComplete) {
         const questStep = this.stepToward(state, ["Q"], "adjacent");
         if (questStep) {
