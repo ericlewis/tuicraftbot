@@ -640,6 +640,7 @@ type BotRunState = {
   lastAttackAt: number;
   questAccepted: boolean;
   questComplete: boolean;
+  starterArmorChecked: boolean;
   lastStateSignature?: string;
   judgeEnabled: boolean;
   judgeConfigs: JudgeConfig[];
@@ -757,6 +758,7 @@ class BotRunner {
       lastAttackAt: 0,
       questAccepted: false,
       questComplete: false,
+      starterArmorChecked: false,
       judgeEnabled,
       judgeConfigs,
       judgeMaxCalls: clampInteger(
@@ -932,6 +934,13 @@ class BotRunner {
       return { label: "dismiss modal", key: "space" };
     }
     if (/--- INVENTORY ---|Manage Inventory|Press ESC to close inventory/i.test(text)) {
+      if (/Tattered Cloth Robes/i.test(text) && !/Tattered Cloth Robes[^\n]*\(Equipped\)/i.test(text)) {
+        if (/▶\s*Tattered Cloth Robes/i.test(text)) {
+          return { label: "equip starter armor", text: "e" };
+        }
+        return { label: "select starter armor", text: "s" };
+      }
+      run.starterArmorChecked = true;
       return { label: "close inventory", key: "escape" };
     }
     if (/Please log in or register/i.test(text)) {
@@ -1087,6 +1096,9 @@ class BotRunner {
   private nextWinAction(run: BotRunState, screen: ScreenSnapshot): BotAction | undefined {
     const state = this.parseGameState(screen);
     this.logWinState(run, state);
+    if (!state.armorMissing) {
+      run.starterArmorChecked = true;
+    }
     if (state.winText) {
       run.status = "completed";
       run.stoppedAt = new Date().toISOString();
@@ -1115,6 +1127,10 @@ class BotRunner {
           return { label: "go to inn to heal", key: healStep };
         }
         return { label: "rest in town", key: "space" };
+      }
+
+      if (state.armorMissing && !run.starterArmorChecked) {
+        return { label: "open inventory to equip starter armor", command: "/inventory" };
       }
 
       const merchantCommand = this.nextMerchantCommand(state, run.tuning);
