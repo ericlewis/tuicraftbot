@@ -493,6 +493,7 @@ type ParsedGameState = {
   gold?: number;
   targetLevel?: number;
   targetIsEliteOrBoss: boolean;
+  targetText?: string;
   inTown: boolean;
   inDungeon: boolean;
   player?: Point;
@@ -530,6 +531,7 @@ type BotRunState = {
   lastAttackAt: number;
   questAccepted: boolean;
   questComplete: boolean;
+  lastStateSignature?: string;
 };
 
 class BotRunner {
@@ -813,6 +815,7 @@ class BotRunner {
 
   private nextWinAction(run: BotRunState, screen: ScreenSnapshot): BotAction | undefined {
     const state = this.parseGameState(screen);
+    this.logWinState(run, state);
     if (state.winText) {
       run.status = "completed";
       run.stoppedAt = new Date().toISOString();
@@ -877,7 +880,10 @@ class BotRunner {
           (state.targetLevel > allowedTargetLevel || (state.targetIsEliteOrBoss && state.level < 3))
       );
       if (targetIsRisky) {
-        return { label: "bail from over-level target", command: "/stuck" };
+        return {
+          label: state.targetIsEliteOrBoss ? "bail from elite/boss target" : "bail from over-level target",
+          command: "/stuck"
+        };
       }
       if (hpRatio < 0.82) {
         return { label: "bail to heal", command: "/stuck" };
@@ -951,6 +957,7 @@ class BotRunner {
       gold: goldMatch ? Number(goldMatch[1]) : undefined,
       targetLevel: targetLevelMatch ? Number(targetLevelMatch[1]) : undefined,
       targetIsEliteOrBoss: /elite|boss|\*/i.test(targetPanelText),
+      targetText: targetPanelText ? normalizeWhitespace(targetPanelText).slice(0, 160) : undefined,
       inTown: Boolean(mapName && /Town|Abbey/i.test(mapName)),
       inDungeon: Boolean(mapName && !/Town|Abbey/i.test(mapName)),
       player,
@@ -962,6 +969,35 @@ class BotRunner {
       dead: hpMatch ? Number(hpMatch[1]) <= 0 : /You are dead|You have died/i.test(screen.text),
       winText: /you win|victory|congratulations|world saved|final boss defeated|game cleared/i.test(screen.text)
     };
+  }
+
+  private logWinState(run: BotRunState, state: ParsedGameState): void {
+    const hp = state.hp ? `${state.hp.current}/${state.hp.max}` : "";
+    const xp = state.xp ? `${state.xp.current}/${state.xp.max}` : "";
+    const signature = [
+      state.mapName ?? "",
+      state.level,
+      hp,
+      xp,
+      state.gold ?? "",
+      state.targetLevel ?? "",
+      state.targetIsEliteOrBoss ? "elite-boss" : "",
+      state.dead ? "dead" : ""
+    ].join("|");
+    if (signature === run.lastStateSignature) {
+      return;
+    }
+    run.lastStateSignature = signature;
+    this.log("info", "state changed", {
+      map: state.mapName,
+      level: state.level,
+      hp,
+      xp,
+      gold: state.gold,
+      targetLevel: state.targetLevel,
+      targetIsEliteOrBoss: state.targetIsEliteOrBoss,
+      target: state.targetText
+    });
   }
 
   private hasAdjacent(state: ParsedGameState, kinds: string[]): boolean {
