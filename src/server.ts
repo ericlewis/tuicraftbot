@@ -52,6 +52,7 @@ type BotRunOptions = {
   accountUsername?: string;
   accountPassword?: string;
   characterName?: string;
+  worldSeed?: string;
   judgeEnabled?: boolean;
   judgeModels?: string;
   judgeMaxCalls?: number;
@@ -96,6 +97,7 @@ type BotRunSummary = {
   lastActionAt?: string;
   accountUsername?: string;
   characterName?: string;
+  worldSeed?: string;
   accountRegistered?: boolean;
   findings: string[];
   judge?: {
@@ -626,6 +628,7 @@ type BotRunState = {
   accountUsername: string;
   accountPassword: string;
   characterName: string;
+  worldSeed: string;
   reuseExistingAccount: boolean;
   accountRegistered: boolean;
   findings: string[];
@@ -692,6 +695,7 @@ class BotRunner {
       lastActionAt: this.run.lastActionAt,
       accountUsername: this.run.accountUsername,
       characterName: this.run.characterName,
+      worldSeed: this.run.worldSeed,
       accountRegistered: this.run.accountRegistered ?? this.run.reuseExistingAccount,
       findings: [...this.run.findings],
       judge: {
@@ -724,6 +728,7 @@ class BotRunner {
     const requestedUsername = options.accountUsername?.trim();
     const requestedPassword = options.accountPassword?.trim();
     const requestedCharacter = options.characterName?.trim();
+    const requestedWorldSeed = options.worldSeed?.trim() || process.env.BOT_WORLD_SEED?.trim();
     const reuseExistingAccount = Boolean(requestedUsername && requestedPassword);
     const judgeConfigs = parseJudgeConfigs(options.judgeModels ?? process.env.TUICRAFT_JUDGE_MODELS);
     const judgeEnabled =
@@ -744,6 +749,7 @@ class BotRunner {
       accountUsername: requestedUsername || `codex${Date.now().toString(36).slice(-7)}${suffix.slice(0, 2)}`,
       accountPassword: requestedPassword || `codex-pass-${suffix}`,
       characterName: requestedCharacter || `Codex${suffix}`,
+      worldSeed: requestedWorldSeed || "1",
       reuseExistingAccount,
       accountRegistered: reuseExistingAccount,
       findings: [],
@@ -963,7 +969,7 @@ class BotRunner {
       return { label: "enter generated password", text: `${run.accountPassword}\r`, redact: true };
     }
     if (/Select World Instance|World Instance \(Seed\)|Enter last played world seed|Last Seed:/i.test(text)) {
-      return { label: "enter last played world", text: "1\r" };
+      return { label: "enter world seed", text: `${run.worldSeed}\r` };
     }
     if (/Select a character/i.test(text)) {
       if (run.reuseExistingAccount || run.accountRegistered) {
@@ -2311,6 +2317,7 @@ function parseBotOptions(body: Record<string, unknown>): BotRunOptions {
     accountUsername: nonEmptyStringValue(body.accountUsername),
     accountPassword: nonEmptyStringValue(body.accountPassword),
     characterName: nonEmptyStringValue(body.characterName),
+    worldSeed: nonEmptyStringValue(body.worldSeed),
     judgeEnabled: booleanValue(body.judgeEnabled),
     judgeModels: nonEmptyStringValue(body.judgeModels),
     judgeMaxCalls: numberValue(body.judgeMaxCalls),

@@ -179,7 +179,8 @@ server.registerTool(
         .optional(),
       accountUsername: z.string().min(1).optional(),
       accountPassword: z.string().min(1).optional(),
-      characterName: z.string().min(1).optional()
+      characterName: z.string().min(1).optional(),
+      worldSeed: z.string().min(1).optional()
     }
   },
   async (params) => {
@@ -408,6 +409,7 @@ function withEnvBotAccount<T extends Record<string, unknown>>(params: T): T {
   body.accountUsername ??= Bun.env.BOT_ACCOUNT_USERNAME;
   body.accountPassword ??= Bun.env.BOT_ACCOUNT_PASSWORD;
   body.characterName ??= Bun.env.BOT_CHARACTER_NAME;
+  body.worldSeed ??= Bun.env.BOT_WORLD_SEED;
   return body as T;
 }
 
