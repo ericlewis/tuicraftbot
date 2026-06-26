@@ -95,19 +95,19 @@ Modes:
   the visible TUI map, enters/exits dungeons, fights with conservative HP
   thresholds, and looks for explicit win/victory text.
 
-Win mode can optionally ask a small OpenAI model ensemble to arbitrate risky
-tactical choices such as boss engagement, retreat, and adjacent combat. The
-judge can only choose from deterministic candidate actions, so it cannot invent
-arbitrary commands:
+Win mode asks a small OpenAI model ensemble to arbitrate risky tactical choices
+such as boss engagement, retreat, and adjacent combat by default. The judge can
+only choose from deterministic candidate actions, so it cannot invent arbitrary
+commands:
 
 ```sh
-TUICRAFT_JUDGE_ENABLED=true \
 TUICRAFT_JUDGE_MODELS='gpt-5.5:medium,gpt-5.4-mini:low,gpt-5.4-nano:low' \
 bun run bot:resume
 ```
 
 Use `TUICRAFT_JUDGE_MAX_CALLS`, `TUICRAFT_JUDGE_COOLDOWN_MS`, and
-`TUICRAFT_JUDGE_TIMEOUT_MS` to bound cost and latency.
+`TUICRAFT_JUDGE_TIMEOUT_MS` to bound cost and latency. Use
+`TUICRAFT_JUDGE_ENABLED=false` to disable ensemble judging.
 
 Chat participation is enabled by default, but gated: the bot only replies when
 the visible chat appears to address `Codex...`/`codex` or when a reply is

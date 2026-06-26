@@ -674,7 +674,7 @@ class BotRunner {
     const reuseExistingAccount = Boolean(requestedUsername && requestedPassword);
     const judgeConfigs = parseJudgeConfigs(options.judgeModels ?? process.env.TUICRAFT_JUDGE_MODELS);
     const judgeEnabled =
-      options.judgeEnabled ?? readBooleanEnv("TUICRAFT_JUDGE_ENABLED", false);
+      options.judgeEnabled ?? readBooleanEnv("TUICRAFT_JUDGE_ENABLED", defaultJudgeEnabled(mode));
     const chatEnabled = options.chatEnabled ?? readBooleanEnv("TUICRAFT_CHAT_ENABLED", true);
     const run: BotRunState = {
       id: `bot-${Date.now().toString(36)}-${suffix}`,
@@ -2303,6 +2303,10 @@ function defaultReconnectLimit(mode: BotMode): number {
     return 3;
   }
   return 5;
+}
+
+function defaultJudgeEnabled(mode: BotMode): boolean {
+  return mode === "win";
 }
 
 function reconnectBackoffMs(reconnectCount: number): number {
