@@ -488,6 +488,7 @@ type ParsedGameState = {
   hp?: { current: number; max: number };
   xp?: { current: number; max: number };
   gold?: number;
+  targetLevel?: number;
   inTown: boolean;
   inDungeon: boolean;
   player?: Point;
@@ -837,7 +838,8 @@ class BotRunner {
 
     if (state.inDungeon) {
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
-      if (hpRatio < 0.42) {
+      const targetIsRisky = Boolean(state.targetLevel && state.targetLevel > state.level);
+      if (hpRatio < (targetIsRisky ? 0.82 : 0.65)) {
         const exitStep = this.stepToward(state, ["D"], "onto");
         if (exitStep) {
           return { label: "retreat to door", key: exitStep };
@@ -883,6 +885,7 @@ class BotRunner {
     const hpMatch = screen.text.match(/(?:Your\s+)?HP:\s*(\d+)\/(\d+)/);
     const xpMatch = screen.text.match(/XP:\s*(\d+)\/(\d+)/);
     const goldMatch = screen.text.match(/GP:\s*(\d+)g/);
+    const targetLevelMatch = screen.text.match(/--- Target ---[\s\S]*?Level:\s*(\d+)/);
     const grid: string[][] = [];
     const entities: GameEntity[] = [];
     let player: Point | undefined;
@@ -908,6 +911,7 @@ class BotRunner {
       hp: hpMatch ? { current: Number(hpMatch[1]), max: Number(hpMatch[2]) } : undefined,
       xp: xpMatch ? { current: Number(xpMatch[1]), max: Number(xpMatch[2]) } : undefined,
       gold: goldMatch ? Number(goldMatch[1]) : undefined,
+      targetLevel: targetLevelMatch ? Number(targetLevelMatch[1]) : undefined,
       inTown: Boolean(mapName && /Town|Abbey/i.test(mapName)),
       inDungeon: Boolean(mapName && !/Town|Abbey/i.test(mapName)),
       player,
@@ -916,7 +920,7 @@ class BotRunner {
       text: screen.text,
       questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill/i.test(screen.text),
       questComplete: /Status:\s*Complete|Quest complete|Reward claimed/i.test(screen.text),
-      dead: /You are dead|You have died|HP:\s*0\//i.test(screen.text),
+      dead: hpMatch ? Number(hpMatch[1]) <= 0 : /You are dead|You have died/i.test(screen.text),
       winText: /you win|victory|congratulations|world saved|final boss defeated|game cleared/i.test(screen.text)
     };
   }
