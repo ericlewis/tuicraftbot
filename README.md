@@ -127,3 +127,30 @@ with `--model`, `--size`, and `--quality`, or the `TUICRAFT_ART_MODEL`,
 `TUICRAFT_ART_SIZE`, and `TUICRAFT_ART_QUALITY` environment variables. Use
 `--template` to ignore the live screen and regenerate from the base
 Codex9tqnwg/Northshire/Fargodeep template.
+
+## MCP server
+
+Run a local stdio MCP server that wraps the instrumentation API, bot controls,
+manual input, session reconnect, and art generator:
+
+```sh
+bun run mcp
+```
+
+Typical local client configuration points at the command above from this repo
+directory. The server reads `TUICRAFT_API` for the local API base and can reuse
+`BOT_ACCOUNT_USERNAME`, `BOT_ACCOUNT_PASSWORD`, and `BOT_CHARACTER_NAME` for
+the `tuicraft_start_bot` tool without committing credentials.
+
+Exposed tools:
+
+- `tuicraft_get_screen`: current screen plus parsed state summary
+- `tuicraft_get_bot`: bot status and recent logs
+- `tuicraft_start_bot`: bounded bot run with reconnect caps
+- `tuicraft_stop_bot`: stop current bot run
+- `tuicraft_send_input`: manual key/text input
+- `tuicraft_restart_session`: reconnect SSH bridge
+- `tuicraft_state_art`: generate the state-art prompt or image output
+
+Resources are available at `tuicraft://screen`, `tuicraft://bot`, and
+`tuicraft://session`.

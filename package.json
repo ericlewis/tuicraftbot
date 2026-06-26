@@ -8,12 +8,15 @@
     "dev:restart": "bun --watch src/server.ts",
     "art:state": "bun scripts/generate-state-art.ts",
     "bot:resume": "bun scripts/resume-win.ts",
+    "mcp": "bun src/mcp-server.ts",
     "start": "bun src/server.ts",
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@xterm/headless": "^5.5.0",
-    "ssh2": "^1.16.0"
+    "ssh2": "^1.16.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bun": "^1.2.18",
