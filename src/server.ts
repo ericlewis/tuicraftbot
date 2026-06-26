@@ -52,6 +52,10 @@ type BotRunOptions = {
   accountUsername?: string;
   accountPassword?: string;
   characterName?: string;
+  judgeEnabled?: boolean;
+  judgeModels?: string;
+  judgeMaxCalls?: number;
+  judgeCooldownMs?: number;
 };
 
 type BotRunSummary = {
@@ -70,6 +74,12 @@ type BotRunSummary = {
   accountUsername?: string;
   characterName?: string;
   findings: string[];
+  judge?: {
+    enabled: boolean;
+    models: string[];
+    calls: number;
+    maxCalls: number;
+  };
 };
 
 class RingBuffer<T> {
@@ -127,6 +137,8 @@ const KEY_BYTES: Record<string, string> = {
   q: "q",
   e: "e"
 };
+
+const DEFAULT_JUDGE_MODELS = "gpt-5.5:medium,gpt-5.4-mini:low,gpt-5.4-nano:low";
 
 class GameBridge {
   private conn?: Client;
@@ -487,6 +499,27 @@ type BotAction = {
   redact?: boolean;
 };
 
+type JudgeConfig = {
+  model: string;
+  reasoningEffort?: string;
+  weight: number;
+};
+
+type JudgeCandidate = {
+  id: string;
+  action: BotAction;
+  note: string;
+};
+
+type JudgeVote = {
+  model: string;
+  reasoningEffort?: string;
+  weight: number;
+  choiceId: string;
+  confidence: number;
+  reason?: string;
+};
+
 type Point = {
   x: number;
   y: number;
@@ -551,6 +584,14 @@ type BotRunState = {
   questAccepted: boolean;
   questComplete: boolean;
   lastStateSignature?: string;
+  judgeEnabled: boolean;
+  judgeConfigs: JudgeConfig[];
+  judgeMaxCalls: number;
+  judgeCalls: number;
+  judgeCooldownMs: number;
+  nextJudgeAt: number;
+  lastJudgeSignature?: string;
+  lastJudgeChoiceId?: string;
 };
 
 class BotRunner {
@@ -587,7 +628,13 @@ class BotRunner {
       lastActionAt: this.run.lastActionAt,
       accountUsername: this.run.accountUsername,
       characterName: this.run.characterName,
-      findings: [...this.run.findings]
+      findings: [...this.run.findings],
+      judge: {
+        enabled: this.run.judgeEnabled,
+        models: this.run.judgeConfigs.map(formatJudgeConfig),
+        calls: this.run.judgeCalls,
+        maxCalls: this.run.judgeMaxCalls
+      }
     };
   }
 
@@ -607,6 +654,9 @@ class BotRunner {
     const requestedPassword = options.accountPassword?.trim();
     const requestedCharacter = options.characterName?.trim();
     const reuseExistingAccount = Boolean(requestedUsername && requestedPassword);
+    const judgeConfigs = parseJudgeConfigs(options.judgeModels ?? process.env.TUICRAFT_JUDGE_MODELS);
+    const judgeEnabled =
+      options.judgeEnabled ?? readBooleanEnv("TUICRAFT_JUDGE_ENABLED", false);
     const run: BotRunState = {
       id: `bot-${Date.now().toString(36)}-${suffix}`,
       mode,
@@ -633,11 +683,31 @@ class BotRunner {
       nextBlankScreenLogAt: 0,
       lastAttackAt: 0,
       questAccepted: false,
-      questComplete: false
+      questComplete: false,
+      judgeEnabled,
+      judgeConfigs,
+      judgeMaxCalls: clampInteger(
+        options.judgeMaxCalls ?? readIntegerEnv("TUICRAFT_JUDGE_MAX_CALLS", 18),
+        0,
+        500
+      ),
+      judgeCalls: 0,
+      judgeCooldownMs: clampInteger(
+        options.judgeCooldownMs ?? readIntegerEnv("TUICRAFT_JUDGE_COOLDOWN_MS", 10_000),
+        1_000,
+        60_000
+      ),
+      nextJudgeAt: 0
     };
 
     this.run = run;
-    this.log("info", "bot started", { mode: run.mode, durationMs: run.durationMs, maxActions: run.maxActions });
+    this.log("info", "bot started", {
+      mode: run.mode,
+      durationMs: run.durationMs,
+      maxActions: run.maxActions,
+      judgeEnabled: run.judgeEnabled,
+      judgeModels: run.judgeEnabled ? run.judgeConfigs.map(formatJudgeConfig) : undefined
+    });
     this.publishStatus();
     void this.loop(run);
     return this.getSummary();
@@ -746,12 +816,15 @@ class BotRunner {
       return;
     }
 
-    const action =
+    let action =
       run.mode === "smoke"
         ? this.nextSmokeAction(run)
         : run.mode === "win"
           ? this.nextWinAction(run, screen)
           : this.nextExplorationAction(run, run.mode === "stress");
+    if (action && run.mode === "win") {
+      action = await this.maybeJudgeWinAction(run, screen, action);
+    }
     if (!action) {
       run.status = "completed";
       run.stoppedAt = new Date().toISOString();
@@ -1046,6 +1119,203 @@ class BotRunner {
     return this.nextWinProbeAction(run);
   }
 
+  private async maybeJudgeWinAction(
+    run: BotRunState,
+    screen: ScreenSnapshot,
+    deterministicAction: BotAction
+  ): Promise<BotAction> {
+    if (!run.judgeEnabled || run.judgeConfigs.length === 0 || run.judgeMaxCalls <= 0) {
+      return deterministicAction;
+    }
+
+    const state = this.parseGameState(screen);
+    if (!this.shouldJudgeWinAction(state, deterministicAction)) {
+      return deterministicAction;
+    }
+
+    const candidates = this.buildJudgeCandidates(run, state, deterministicAction);
+    if (candidates.length <= 1) {
+      return deterministicAction;
+    }
+
+    const signature = this.judgeSignature(state, candidates);
+    if (signature === run.lastJudgeSignature && run.lastJudgeChoiceId) {
+      return candidates.find((candidate) => candidate.id === run.lastJudgeChoiceId)?.action ?? deterministicAction;
+    }
+    if (Date.now() < run.nextJudgeAt || run.judgeCalls >= run.judgeMaxCalls) {
+      return deterministicAction;
+    }
+
+    const apiKey = await readSecretEnv("OPENAI_API_KEY");
+    if (!apiKey) {
+      this.addFinding(run, "judge enabled but OPENAI_API_KEY is unavailable");
+      return deterministicAction;
+    }
+
+    const callSlots = Math.max(0, run.judgeMaxCalls - run.judgeCalls);
+    const configs = run.judgeConfigs.slice(0, callSlots);
+    if (configs.length === 0) {
+      return deterministicAction;
+    }
+
+    run.judgeCalls += configs.length;
+    run.nextJudgeAt = Date.now() + run.judgeCooldownMs;
+    const votes = await this.askJudgeEnsemble(run, state, deterministicAction, candidates, configs, apiKey);
+    const choiceId = chooseJudgeCandidate(votes, candidates);
+    run.lastJudgeSignature = signature;
+    run.lastJudgeChoiceId = choiceId;
+
+    const chosen = candidates.find((candidate) => candidate.id === choiceId)?.action ?? deterministicAction;
+    if (actionFingerprint(chosen) !== actionFingerprint(deterministicAction)) {
+      this.log("info", "judge overrode win action", {
+        from: deterministicAction.label,
+        to: chosen.label,
+        votes
+      });
+    } else if (votes.length > 0) {
+      this.log("info", "judge confirmed win action", {
+        action: chosen.label,
+        votes
+      });
+    }
+    return chosen;
+  }
+
+  private shouldJudgeWinAction(state: ParsedGameState, action: BotAction): boolean {
+    if (!state.inDungeon) {
+      return false;
+    }
+    const label = action.label.toLowerCase();
+    return Boolean(
+      state.targetIsEliteOrBoss ||
+        this.nearestDistance(state, ["B"]) !== undefined ||
+        this.hasAdjacent(state, ["B", "M"]) ||
+        /\b(?:attack|boss|hunt|bail|heal|stuck)\b/.test(label)
+    );
+  }
+
+  private buildJudgeCandidates(
+    run: BotRunState,
+    state: ParsedGameState,
+    deterministicAction: BotAction
+  ): JudgeCandidate[] {
+    const candidates: JudgeCandidate[] = [];
+    this.addJudgeCandidate(candidates, "deterministic", deterministicAction, "Current deterministic policy choice.");
+
+    const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
+    const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
+    if (questBossRun && state.targetIsEliteOrBoss && hpRatio > 0.35) {
+      this.addJudgeCandidate(
+        candidates,
+        "attack_selected_boss",
+        { label: "attack selected boss", key: "space" },
+        "Target panel is an elite or boss and HP is above the critical retreat threshold."
+      );
+    }
+    if (questBossRun && this.hasAdjacent(state, ["B"]) && hpRatio > 0.35) {
+      this.addJudgeCandidate(
+        candidates,
+        "attack_adjacent_boss",
+        { label: "attack adjacent boss", key: "space" },
+        "Boss marker is adjacent and HP is above the critical retreat threshold."
+      );
+    }
+    if (this.hasAdjacent(state, ["M"]) && hpRatio > 0.45) {
+      this.addJudgeCandidate(
+        candidates,
+        "attack_adjacent_mob",
+        { label: "attack adjacent enemy", key: "space" },
+        "A regular mob is adjacent and HP is above the normal combat threshold."
+      );
+    }
+
+    const bossStep = questBossRun && hpRatio > 0.35 ? this.stepToward(state, ["B"], "adjacent") : undefined;
+    if (bossStep) {
+      this.addJudgeCandidate(
+        candidates,
+        "hunt_boss",
+        { label: "hunt elite or boss", key: bossStep },
+        "Move toward the boss for the accepted Elite Slayer quest."
+      );
+    }
+    const mobStep = hpRatio > 0.45 ? this.stepToward(state, ["M"], "adjacent") : undefined;
+    if (mobStep) {
+      this.addJudgeCandidate(
+        candidates,
+        "hunt_mob",
+        { label: "hunt mob", key: mobStep },
+        "Move toward a regular mob for safe XP/gold if boss route is poor."
+      );
+    }
+
+    if (hpRatio < 0.7 || state.targetIsEliteOrBoss || this.nearestDistance(state, ["B"]) !== undefined) {
+      this.addJudgeCandidate(
+        candidates,
+        "retreat_stuck",
+        { label: hpRatio < 0.35 ? "bail from boss at critical hp" : "bail to heal", command: "/stuck" },
+        "Return to town to heal or recover if the current fight is too risky."
+      );
+    }
+
+    return candidates;
+  }
+
+  private addJudgeCandidate(
+    candidates: JudgeCandidate[],
+    id: string,
+    action: BotAction,
+    note: string
+  ): void {
+    const fingerprint = actionFingerprint(action);
+    if (candidates.some((candidate) => actionFingerprint(candidate.action) === fingerprint)) {
+      return;
+    }
+    candidates.push({ id, action, note });
+  }
+
+  private judgeSignature(state: ParsedGameState, candidates: JudgeCandidate[]): string {
+    return [
+      state.mapName ?? "",
+      state.level,
+      state.hp ? `${state.hp.current}/${state.hp.max}` : "",
+      state.xp ? `${state.xp.current}/${state.xp.max}` : "",
+      state.gold ?? "",
+      state.questInProgress ? "quest" : "",
+      state.targetLevel ?? "",
+      state.targetIsEliteOrBoss ? "elite-boss" : "",
+      this.nearestDistance(state, ["B"]) ?? "",
+      candidates.map((candidate) => `${candidate.id}:${actionFingerprint(candidate.action)}`).join("|")
+    ].join("::");
+  }
+
+  private async askJudgeEnsemble(
+    run: BotRunState,
+    state: ParsedGameState,
+    deterministicAction: BotAction,
+    candidates: JudgeCandidate[],
+    configs: JudgeConfig[],
+    apiKey: string
+  ): Promise<JudgeVote[]> {
+    const payload = buildJudgePayload(state, deterministicAction, candidates);
+    const results = await Promise.allSettled(
+      configs.map((config) => callJudgeModel(config, payload, apiKey))
+    );
+    const votes: JudgeVote[] = [];
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        votes.push(result.value);
+      } else {
+        this.log("warn", "judge model failed", {
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason)
+        });
+      }
+    }
+    if (votes.length === 0) {
+      this.addFinding(run, "judge ensemble returned no usable votes");
+    }
+    return votes;
+  }
+
   private savedPortalAction(run: BotRunState, state: ParsedGameState): BotAction {
     if (run.questAccepted || state.questInProgress || state.level < 4) {
       return { label: "enter quest dungeon portal", command: "/enter 1" };
@@ -1054,14 +1324,14 @@ class BotRunner {
   }
 
   private canFightQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
-    const weaponUpgrade = state.weaponUpgrade ?? 0;
-    const armorUpgrade = state.armorUpgrade ?? 0;
+    const weaponReady = state.weaponUpgrade === undefined || state.weaponUpgrade >= 2;
+    const armorReady = state.armorUpgrade === undefined || state.armorUpgrade >= 2;
     return (
       this.hasAcceptedEliteQuest(run, state) &&
       hpRatio > 0.35 &&
       state.level >= Math.max(4, state.mapLevel ?? 4) &&
-      weaponUpgrade >= 2 &&
-      armorUpgrade >= 2
+      weaponReady &&
+      armorReady
     );
   }
 
@@ -1639,12 +1909,58 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
   return parsed as Record<string, unknown>;
 }
 
+let dotEnvCache: Map<string, string> | undefined;
+
+async function readSecretEnv(name: string): Promise<string | undefined> {
+  const direct = process.env[name] ?? Bun.env[name];
+  if (direct?.trim()) {
+    return direct.trim();
+  }
+  const env = await readDotEnv();
+  return env.get(name)?.trim() || undefined;
+}
+
+async function readDotEnv(): Promise<Map<string, string>> {
+  if (dotEnvCache) {
+    return dotEnvCache;
+  }
+  const values = new Map<string, string>();
+  try {
+    const text = await Bun.file(".env").text();
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) {
+        continue;
+      }
+      const index = trimmed.indexOf("=");
+      if (index <= 0) {
+        continue;
+      }
+      const key = trimmed.slice(0, index).trim();
+      const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
+      values.set(key, value);
+    }
+  } catch {
+    // Missing .env is fine; process env remains the primary path.
+  }
+  dotEnvCache = values;
+  return values;
+}
+
 function readIntegerEnv(name: string, fallback: number): number {
-  const value = Number(process.env[name]);
+  const value = Number(process.env[name] ?? Bun.env[name]);
   if (!Number.isFinite(value)) {
     return fallback;
   }
   return clampInteger(value, 1, 10_000);
+}
+
+function readBooleanEnv(name: string, fallback: boolean): boolean {
+  const value = (process.env[name] ?? Bun.env[name])?.trim().toLowerCase();
+  if (!value) {
+    return fallback;
+  }
+  return ["1", "true", "yes", "on"].includes(value);
 }
 
 function readLimit(url: URL, fallback: number): number {
@@ -1666,6 +1982,10 @@ function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function parseBotOptions(body: Record<string, unknown>): BotRunOptions {
   const mode = stringValue(body.mode);
   const durationSeconds = numberValue(body.durationSeconds);
@@ -1678,8 +1998,210 @@ function parseBotOptions(body: Record<string, unknown>): BotRunOptions {
     maxReconnects: numberValue(body.maxReconnects),
     accountUsername: nonEmptyStringValue(body.accountUsername),
     accountPassword: nonEmptyStringValue(body.accountPassword),
-    characterName: nonEmptyStringValue(body.characterName)
+    characterName: nonEmptyStringValue(body.characterName),
+    judgeEnabled: booleanValue(body.judgeEnabled),
+    judgeModels: nonEmptyStringValue(body.judgeModels),
+    judgeMaxCalls: numberValue(body.judgeMaxCalls),
+    judgeCooldownMs: numberValue(body.judgeCooldownMs)
   };
+}
+
+function parseJudgeConfigs(raw = process.env.TUICRAFT_JUDGE_MODELS ?? Bun.env.TUICRAFT_JUDGE_MODELS ?? DEFAULT_JUDGE_MODELS): JudgeConfig[] {
+  return raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const [model, reasoningEffort, rawWeight] = part.split(":").map((value) => value.trim());
+      const weight = rawWeight ? Number(rawWeight) : 1;
+      return {
+        model,
+        reasoningEffort: reasoningEffort || undefined,
+        weight: Number.isFinite(weight) && weight > 0 ? weight : 1
+      };
+    })
+    .filter((config) => Boolean(config.model));
+}
+
+function formatJudgeConfig(config: JudgeConfig): string {
+  const effort = config.reasoningEffort ? `:${config.reasoningEffort}` : "";
+  const weight = config.weight !== 1 ? `:${config.weight}` : "";
+  return `${config.model}${effort}${weight}`;
+}
+
+function buildJudgePayload(
+  state: ParsedGameState,
+  deterministicAction: BotAction,
+  candidates: JudgeCandidate[]
+): Record<string, unknown> {
+  const hpRatio = state.hp ? state.hp.current / state.hp.max : undefined;
+  return {
+    objective: "Win TUICraft efficiently while avoiding death, kicks, bans, and needless server load.",
+    rules: [
+      "Choose exactly one candidate id.",
+      "Prefer boss progress for an accepted Elite Slayer quest when level 4 and HP is above 35%.",
+      "Retreat with /stuck only when HP is critical, the target is over-level, or no safe progress candidate exists.",
+      "Do not invent commands or choose an action outside the candidate list."
+    ],
+    state: {
+      mapName: state.mapName,
+      mapLevel: state.mapLevel,
+      level: state.level,
+      hp: state.hp,
+      hpRatio,
+      xp: state.xp,
+      gold: state.gold,
+      weaponUpgrade: state.weaponUpgrade,
+      armorUpgrade: state.armorUpgrade,
+      questInProgress: state.questInProgress,
+      questComplete: state.questComplete,
+      targetLevel: state.targetLevel,
+      targetIsEliteOrBoss: state.targetIsEliteOrBoss,
+      targetText: state.targetText,
+      entityCounts: {
+        mobs: state.entities.filter((entity) => entity.kind === "M").length,
+        bosses: state.entities.filter((entity) => entity.kind === "B").length,
+        dungeonDoors: state.entities.filter((entity) => entity.kind === "D").length
+      }
+    },
+    deterministicAction: describeAction(deterministicAction),
+    candidates: candidates.map((candidate) => ({
+      id: candidate.id,
+      action: describeAction(candidate.action),
+      note: candidate.note
+    }))
+  };
+}
+
+function describeAction(action: BotAction): Record<string, unknown> {
+  return {
+    label: action.label,
+    key: action.key,
+    text: action.text,
+    command: action.command
+  };
+}
+
+async function callJudgeModel(
+  config: JudgeConfig,
+  payload: Record<string, unknown>,
+  apiKey: string
+): Promise<JudgeVote> {
+  const body: Record<string, unknown> = {
+    model: config.model,
+    input: [
+      {
+        role: "system",
+        content:
+          "You are a tactical arbiter for a terminal RPG automation. Return only compact JSON with keys choiceId, confidence, and reason. The choiceId must be one of the supplied candidate ids."
+      },
+      {
+        role: "user",
+        content: JSON.stringify(payload)
+      }
+    ],
+    max_output_tokens: 220
+  };
+  if (config.reasoningEffort) {
+    body.reasoning = { effort: config.reasoningEffort };
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(readIntegerEnv("TUICRAFT_JUDGE_TIMEOUT_MS", 30_000))
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`${config.model} judge failed: ${response.status} ${text.slice(0, 400)}`);
+  }
+
+  const parsedResponse = JSON.parse(text) as Record<string, unknown>;
+  const outputText = extractResponseText(parsedResponse);
+  const vote = parseJudgeVoteJson(outputText);
+  return {
+    model: config.model,
+    reasoningEffort: config.reasoningEffort,
+    weight: config.weight,
+    choiceId: vote.choiceId,
+    confidence: Math.max(0.1, Math.min(1, vote.confidence)),
+    reason: vote.reason
+  };
+}
+
+function extractResponseText(value: unknown): string {
+  const record = asPlainRecord(value);
+  if (typeof record.output_text === "string") {
+    return record.output_text;
+  }
+  const output = record.output;
+  if (Array.isArray(output)) {
+    const parts: string[] = [];
+    for (const item of output) {
+      const content = asPlainRecord(item).content;
+      if (!Array.isArray(content)) {
+        continue;
+      }
+      for (const block of content) {
+        const blockRecord = asPlainRecord(block);
+        if (typeof blockRecord.text === "string") {
+          parts.push(blockRecord.text);
+        }
+      }
+    }
+    if (parts.length > 0) {
+      return parts.join("\n");
+    }
+  }
+  throw new Error("judge response did not include output text");
+}
+
+function parseJudgeVoteJson(text: string): { choiceId: string; confidence: number; reason?: string } {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+  const choiceId = typeof parsed.choiceId === "string" ? parsed.choiceId : "";
+  const confidence = typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence) ? parsed.confidence : 0.5;
+  const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 200) : undefined;
+  if (!choiceId) {
+    throw new Error("judge response did not include choiceId");
+  }
+  return { choiceId, confidence, reason };
+}
+
+function chooseJudgeCandidate(votes: JudgeVote[], candidates: JudgeCandidate[]): string {
+  const validIds = new Set(candidates.map((candidate) => candidate.id));
+  const scores = new Map<string, number>();
+  for (const vote of votes) {
+    if (!validIds.has(vote.choiceId)) {
+      continue;
+    }
+    scores.set(vote.choiceId, (scores.get(vote.choiceId) ?? 0) + vote.weight * vote.confidence);
+  }
+  let bestId = candidates[0]?.id ?? "";
+  let bestScore = -Infinity;
+  for (const [id, score] of scores) {
+    if (score > bestScore) {
+      bestId = id;
+      bestScore = score;
+    }
+  }
+  return bestId;
+}
+
+function actionFingerprint(action: BotAction): string {
+  return JSON.stringify({
+    key: action.key,
+    text: action.redact ? "[redacted]" : action.text,
+    command: action.command
+  });
+}
+
+function asPlainRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function defaultBotOptions(mode: BotMode): Required<Pick<BotRunOptions, "durationMs" | "intervalMs" | "maxActions">> {

@@ -150,6 +150,10 @@ server.registerTool(
       intervalMs: z.number().int().min(100).max(10000).default(1200),
       maxActions: z.number().int().min(1).max(5000).default(2500),
       maxReconnects: z.number().int().min(0).max(100).default(4),
+      judgeEnabled: z.boolean().optional(),
+      judgeModels: z.string().optional(),
+      judgeMaxCalls: z.number().int().min(0).max(500).optional(),
+      judgeCooldownMs: z.number().int().min(1000).max(60000).optional(),
       accountUsername: z.string().min(1).optional(),
       accountPassword: z.string().min(1).optional(),
       characterName: z.string().min(1).optional()
