@@ -630,10 +630,10 @@ class BotRunner {
       characterName: this.run.characterName,
       findings: [...this.run.findings],
       judge: {
-        enabled: this.run.judgeEnabled,
-        models: this.run.judgeConfigs.map(formatJudgeConfig),
-        calls: this.run.judgeCalls,
-        maxCalls: this.run.judgeMaxCalls
+        enabled: Boolean(this.run.judgeEnabled),
+        models: (this.run.judgeConfigs ?? []).map(formatJudgeConfig),
+        calls: this.run.judgeCalls ?? 0,
+        maxCalls: this.run.judgeMaxCalls ?? 0
       }
     };
   }
