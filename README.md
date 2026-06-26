@@ -115,6 +115,23 @@ the visible chat appears to address `Codex...`/`codex` or when a reply is
 strategically needed. It does not proactively spam chat. Use
 `TUICRAFT_CHAT_ENABLED=false` to disable it.
 
+Win-mode tuning is centralized in `DEFAULT_BOT_TUNING` and can be overridden by
+`tuning` in `/api/bot/start` or `tuicraft_start_bot`. The same values can be set
+with env vars:
+
+- `TUICRAFT_TOWN_HEAL_HP_RATIO`
+- `TUICRAFT_BOSS_PRE_HP_RATIO`, `TUICRAFT_BOSS_ENGAGED_HP_RATIO`,
+  `TUICRAFT_BOSS_MIN_FIGHT_HP_RATIO`
+- `TUICRAFT_SAFE_TARGET_HEAL_HP_RATIO`, `TUICRAFT_UNSAFE_TARGET_HEAL_HP_RATIO`,
+  `TUICRAFT_GO_DEEPER_HP_RATIO`
+- `TUICRAFT_JUDGE_BOSS_HP_RATIO`, `TUICRAFT_JUDGE_MOB_HP_RATIO`,
+  `TUICRAFT_JUDGE_RETREAT_HP_RATIO`
+- `TUICRAFT_EARLY_BOSS_AVOID_PLAYER_LEVEL`,
+  `TUICRAFT_EARLY_BOSS_AVOID_DISTANCE`,
+  `TUICRAFT_EARLY_BOSS_CONTACT_DISTANCE`
+- `TUICRAFT_MAX_WEAPON_UPGRADE`, `TUICRAFT_MAX_ARMOR_UPGRADE`,
+  `TUICRAFT_UPGRADE_COST_BASE_GOLD`
+
 The bot watches the visible terminal for obvious failure text such as
 `Error:`, `Unhandled`, `Exception`, `undefined`, and `NaN`. If the remote game
 server reboots or drops the SSH session during a run, the bot keeps the local

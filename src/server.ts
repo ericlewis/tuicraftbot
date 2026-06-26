@@ -59,6 +59,26 @@ type BotRunOptions = {
   chatEnabled?: boolean;
   chatMaxMessages?: number;
   chatCooldownMs?: number;
+  tuning?: Partial<BotTuningConfig>;
+};
+
+type BotTuningConfig = {
+  townHealHpRatio: number;
+  questBossPreEngageRetreatHpRatio: number;
+  questBossEngagedRetreatHpRatio: number;
+  questBossMinFightHpRatio: number;
+  safeTargetHealHpRatio: number;
+  unsafeTargetHealHpRatio: number;
+  goDeeperHpRatio: number;
+  judgeBossHpRatio: number;
+  judgeMobHpRatio: number;
+  judgeRetreatCandidateHpRatio: number;
+  earlyBossAvoidPlayerLevel: number;
+  earlyBossAvoidDistance: number;
+  earlyBossContactDistance: number;
+  maxWeaponUpgrade: number;
+  maxArmorUpgrade: number;
+  upgradeCostBaseGold: number;
 };
 
 type BotRunSummary = {
@@ -88,6 +108,7 @@ type BotRunSummary = {
     messages: number;
     maxMessages: number;
   };
+  tuning?: BotTuningConfig;
 };
 
 class RingBuffer<T> {
@@ -148,6 +169,24 @@ const KEY_BYTES: Record<string, string> = {
 
 const DEFAULT_JUDGE_MODELS = "gpt-5.5:medium,gpt-5.4-mini:low,gpt-5.4-nano:low";
 const DEFAULT_JUDGE_MAX_CALLS = 96;
+const DEFAULT_BOT_TUNING: BotTuningConfig = {
+  townHealHpRatio: 0.95,
+  questBossPreEngageRetreatHpRatio: 0.45,
+  questBossEngagedRetreatHpRatio: 0.25,
+  questBossMinFightHpRatio: 0.3,
+  safeTargetHealHpRatio: 0.35,
+  unsafeTargetHealHpRatio: 0.55,
+  goDeeperHpRatio: 0.85,
+  judgeBossHpRatio: 0.35,
+  judgeMobHpRatio: 0.45,
+  judgeRetreatCandidateHpRatio: 0.7,
+  earlyBossAvoidPlayerLevel: 3,
+  earlyBossAvoidDistance: 3,
+  earlyBossContactDistance: 1,
+  maxWeaponUpgrade: 4,
+  maxArmorUpgrade: 4,
+  upgradeCostBaseGold: 25
+};
 
 class GameBridge {
   private conn?: Client;
@@ -606,6 +645,7 @@ type BotRunState = {
   chatMaxMessages: number;
   chatCooldownMs: number;
   nextChatAt: number;
+  tuning: BotTuningConfig;
 };
 
 class BotRunner {
@@ -653,7 +693,8 @@ class BotRunner {
         enabled: Boolean(this.run.chatEnabled),
         messages: this.run.chatMessages ?? 0,
         maxMessages: this.run.chatMaxMessages ?? 0
-      }
+      },
+      tuning: this.run.tuning ?? DEFAULT_BOT_TUNING
     };
   }
 
@@ -677,6 +718,7 @@ class BotRunner {
     const judgeEnabled =
       options.judgeEnabled ?? readBooleanEnv("TUICRAFT_JUDGE_ENABLED", defaultJudgeEnabled(mode));
     const chatEnabled = options.chatEnabled ?? readBooleanEnv("TUICRAFT_CHAT_ENABLED", true);
+    const tuning = buildBotTuning(options.tuning);
     const run: BotRunState = {
       id: `bot-${Date.now().toString(36)}-${suffix}`,
       mode,
@@ -726,7 +768,8 @@ class BotRunner {
         30_000,
         900_000
       ),
-      nextChatAt: 0
+      nextChatAt: 0,
+      tuning
     };
 
     this.run = run;
@@ -736,7 +779,8 @@ class BotRunner {
       maxActions: run.maxActions,
       judgeEnabled: run.judgeEnabled,
       judgeModels: run.judgeEnabled ? run.judgeConfigs.map(formatJudgeConfig) : undefined,
-      chatEnabled: run.chatEnabled
+      chatEnabled: run.chatEnabled,
+      tuning: run.tuning
     });
     this.publishStatus();
     void this.loop(run);
@@ -1038,7 +1082,7 @@ class BotRunner {
     if (state.inTown) {
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
       const readyForEliteQuest = state.level >= 3;
-      if (state.hp && hpRatio < 0.95) {
+      if (state.hp && hpRatio < run.tuning.townHealHpRatio) {
         const healStep = this.stepToward(state, ["I"], "onto");
         if (healStep) {
           return { label: "go to inn to heal", key: healStep };
@@ -1046,7 +1090,7 @@ class BotRunner {
         return { label: "rest in town", key: "space" };
       }
 
-      const merchantCommand = this.nextMerchantCommand(state);
+      const merchantCommand = this.nextMerchantCommand(state, run.tuning);
       if (merchantCommand) {
         const merchantStep = this.stepToward(state, ["S"], "adjacent");
         if (merchantStep) {
@@ -1103,19 +1147,33 @@ class BotRunner {
       const engagedQuestBoss = Boolean(
         questBossRun && state.targetIsEliteOrBoss && state.targetLevel && state.targetLevel <= state.level
       );
-      if (questBossRun && hpRatio < (engagedQuestBoss ? 0.25 : 0.45)) {
+      if (
+        questBossRun &&
+        hpRatio <
+          (engagedQuestBoss
+            ? run.tuning.questBossEngagedRetreatHpRatio
+            : run.tuning.questBossPreEngageRetreatHpRatio)
+      ) {
         return {
           label: engagedQuestBoss ? "bail from boss at critical hp" : "bail to top off before boss",
           command: "/stuck"
         };
       }
-      if (state.level < 3 && nearestBoss !== undefined && nearestBoss <= 3) {
+      if (
+        state.level < run.tuning.earlyBossAvoidPlayerLevel &&
+        nearestBoss !== undefined &&
+        nearestBoss <= run.tuning.earlyBossAvoidDistance
+      ) {
         return { label: "bail from nearby boss", command: "/stuck" };
       }
-      if (!canFightQuestBoss && nearestBoss !== undefined && nearestBoss <= 1) {
+      if (
+        !canFightQuestBoss &&
+        nearestBoss !== undefined &&
+        nearestBoss <= run.tuning.earlyBossContactDistance
+      ) {
         return { label: "bail from early boss contact", command: "/stuck" };
       }
-      if (this.nextMerchantCommand(state) && !canFightQuestBoss) {
+      if (this.nextMerchantCommand(state, run.tuning) && !canFightQuestBoss) {
         return { label: "bail to buy upgrade", command: "/stuck" };
       }
       const targetIsRisky = Boolean(
@@ -1131,7 +1189,7 @@ class BotRunner {
       const hasSafeTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
-      const healThreshold = hasSafeTarget ? 0.35 : 0.55;
+      const healThreshold = hasSafeTarget ? run.tuning.safeTargetHealHpRatio : run.tuning.unsafeTargetHealHpRatio;
       if (hpRatio < healThreshold) {
         return { label: "bail to heal", command: "/stuck" };
       }
@@ -1153,7 +1211,10 @@ class BotRunner {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
       }
 
-      const canGoDeeper = !run.questAccepted && state.level >= (state.mapLevel ?? 1) + 1 && hpRatio > 0.85;
+      const canGoDeeper =
+        !run.questAccepted &&
+        state.level >= (state.mapLevel ?? 1) + 1 &&
+        hpRatio > run.tuning.goDeeperHpRatio;
       if (canGoDeeper) {
         const deeperStep = this.stepToward(state, ["D"], "onto");
         if (deeperStep) {
@@ -1284,7 +1345,7 @@ class BotRunner {
 
     const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
     const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
-    if (questBossRun && state.targetIsEliteOrBoss && hpRatio > 0.35) {
+    if (questBossRun && state.targetIsEliteOrBoss && hpRatio > run.tuning.judgeBossHpRatio) {
       this.addJudgeCandidate(
         candidates,
         "attack_selected_boss",
@@ -1292,7 +1353,7 @@ class BotRunner {
         "Target panel is an elite or boss and HP is above the critical retreat threshold."
       );
     }
-    if (questBossRun && this.hasAdjacent(state, ["B"]) && hpRatio > 0.35) {
+    if (questBossRun && this.hasAdjacent(state, ["B"]) && hpRatio > run.tuning.judgeBossHpRatio) {
       this.addJudgeCandidate(
         candidates,
         "attack_adjacent_boss",
@@ -1300,7 +1361,7 @@ class BotRunner {
         "Boss marker is adjacent and HP is above the critical retreat threshold."
       );
     }
-    if (this.hasAdjacent(state, ["M"]) && hpRatio > 0.45) {
+    if (this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.judgeMobHpRatio) {
       this.addJudgeCandidate(
         candidates,
         "attack_adjacent_mob",
@@ -1309,7 +1370,8 @@ class BotRunner {
       );
     }
 
-    const bossStep = questBossRun && hpRatio > 0.35 ? this.stepToward(state, ["B"], "adjacent") : undefined;
+    const bossStep =
+      questBossRun && hpRatio > run.tuning.judgeBossHpRatio ? this.stepToward(state, ["B"], "adjacent") : undefined;
     if (bossStep) {
       this.addJudgeCandidate(
         candidates,
@@ -1318,7 +1380,7 @@ class BotRunner {
         "Move toward the boss for the accepted Elite Slayer quest."
       );
     }
-    const mobStep = hpRatio > 0.45 ? this.stepToward(state, ["M"], "adjacent") : undefined;
+    const mobStep = hpRatio > run.tuning.judgeMobHpRatio ? this.stepToward(state, ["M"], "adjacent") : undefined;
     if (mobStep) {
       this.addJudgeCandidate(
         candidates,
@@ -1328,11 +1390,21 @@ class BotRunner {
       );
     }
 
-    if (hpRatio < 0.7 || state.targetIsEliteOrBoss || this.nearestDistance(state, ["B"]) !== undefined) {
+    if (
+      hpRatio < run.tuning.judgeRetreatCandidateHpRatio ||
+      state.targetIsEliteOrBoss ||
+      this.nearestDistance(state, ["B"]) !== undefined
+    ) {
       this.addJudgeCandidate(
         candidates,
         "retreat_stuck",
-        { label: hpRatio < 0.35 ? "bail from boss at critical hp" : "bail to heal", command: "/stuck" },
+        {
+          label:
+            hpRatio < run.tuning.questBossEngagedRetreatHpRatio
+              ? "bail from boss at critical hp"
+              : "bail to heal",
+          command: "/stuck"
+        },
         "Return to town to heal or recover if the current fight is too risky."
       );
     }
@@ -1408,7 +1480,7 @@ class BotRunner {
     const armorReady = state.armorUpgrade === undefined || state.armorUpgrade >= 2;
     return (
       this.hasAcceptedEliteQuest(run, state) &&
-      hpRatio > 0.3 &&
+      hpRatio > run.tuning.questBossMinFightHpRatio &&
       state.level >= Math.max(4, state.mapLevel ?? 4) &&
       weaponReady &&
       armorReady
@@ -1529,7 +1601,7 @@ class BotRunner {
     });
   }
 
-  private nextMerchantCommand(state: ParsedGameState): BotAction | undefined {
+  private nextMerchantCommand(state: ParsedGameState, tuning: BotTuningConfig): BotAction | undefined {
     if (state.sellableItemId) {
       return { label: "sell spare loot", command: `/sell ${state.sellableItemId}` };
     }
@@ -1537,13 +1609,13 @@ class BotRunner {
     const gold = state.gold ?? 0;
     const weaponUpgrade = state.weaponUpgrade ?? 0;
     const armorUpgrade = state.armorUpgrade ?? 0;
-    const weaponCost = 25 * (weaponUpgrade + 1);
-    const armorCost = 25 * (armorUpgrade + 1);
+    const weaponCost = tuning.upgradeCostBaseGold * (weaponUpgrade + 1);
+    const armorCost = tuning.upgradeCostBaseGold * (armorUpgrade + 1);
 
-    if (weaponUpgrade < 4 && gold >= weaponCost) {
+    if (weaponUpgrade < tuning.maxWeaponUpgrade && gold >= weaponCost) {
       return { label: "buy weapon upgrade", command: "/buy 1" };
     }
-    if (armorUpgrade < 4 && gold >= armorCost) {
+    if (armorUpgrade < tuning.maxArmorUpgrade && gold >= armorCost) {
       return { label: "buy armor upgrade", command: "/buy 2" };
     }
     return undefined;
@@ -2048,6 +2120,11 @@ function readIntegerEnv(name: string, fallback: number): number {
   return clampInteger(value, 1, 10_000);
 }
 
+function readNumberEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name] ?? Bun.env[name]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function readBooleanEnv(name: string, fallback: boolean): boolean {
   const value = (process.env[name] ?? Bun.env[name])?.trim().toLowerCase();
   if (!value) {
@@ -2065,6 +2142,13 @@ function clampInteger(value: number, min: number, max: number): number {
     return min;
   }
   return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, value));
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -2098,8 +2182,131 @@ function parseBotOptions(body: Record<string, unknown>): BotRunOptions {
     judgeCooldownMs: numberValue(body.judgeCooldownMs),
     chatEnabled: booleanValue(body.chatEnabled),
     chatMaxMessages: numberValue(body.chatMaxMessages),
-    chatCooldownMs: numberValue(body.chatCooldownMs)
+    chatCooldownMs: numberValue(body.chatCooldownMs),
+    tuning: parseBotTuning(body)
   };
+}
+
+function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig> | undefined {
+  const source = asPlainRecord(body.tuning);
+  const tuning: Partial<BotTuningConfig> = {};
+  setTuningNumber(tuning, source, "townHealHpRatio");
+  setTuningNumber(tuning, source, "questBossPreEngageRetreatHpRatio");
+  setTuningNumber(tuning, source, "questBossEngagedRetreatHpRatio");
+  setTuningNumber(tuning, source, "questBossMinFightHpRatio");
+  setTuningNumber(tuning, source, "safeTargetHealHpRatio");
+  setTuningNumber(tuning, source, "unsafeTargetHealHpRatio");
+  setTuningNumber(tuning, source, "goDeeperHpRatio");
+  setTuningNumber(tuning, source, "judgeBossHpRatio");
+  setTuningNumber(tuning, source, "judgeMobHpRatio");
+  setTuningNumber(tuning, source, "judgeRetreatCandidateHpRatio");
+  setTuningNumber(tuning, source, "earlyBossAvoidPlayerLevel");
+  setTuningNumber(tuning, source, "earlyBossAvoidDistance");
+  setTuningNumber(tuning, source, "earlyBossContactDistance");
+  setTuningNumber(tuning, source, "maxWeaponUpgrade");
+  setTuningNumber(tuning, source, "maxArmorUpgrade");
+  setTuningNumber(tuning, source, "upgradeCostBaseGold");
+  return Object.keys(tuning).length > 0 ? tuning : undefined;
+}
+
+function setTuningNumber(
+  tuning: Partial<BotTuningConfig>,
+  source: Record<string, unknown>,
+  key: keyof BotTuningConfig
+): void {
+  const value = numberValue(source[key]);
+  if (value !== undefined) {
+    tuning[key] = value;
+  }
+}
+
+function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConfig {
+  return {
+    townHealHpRatio: tuneNumber(overrides, "townHealHpRatio", "TUICRAFT_TOWN_HEAL_HP_RATIO", 0, 1),
+    questBossPreEngageRetreatHpRatio: tuneNumber(
+      overrides,
+      "questBossPreEngageRetreatHpRatio",
+      "TUICRAFT_BOSS_PRE_HP_RATIO",
+      0,
+      1
+    ),
+    questBossEngagedRetreatHpRatio: tuneNumber(
+      overrides,
+      "questBossEngagedRetreatHpRatio",
+      "TUICRAFT_BOSS_ENGAGED_HP_RATIO",
+      0,
+      1
+    ),
+    questBossMinFightHpRatio: tuneNumber(
+      overrides,
+      "questBossMinFightHpRatio",
+      "TUICRAFT_BOSS_MIN_FIGHT_HP_RATIO",
+      0,
+      1
+    ),
+    safeTargetHealHpRatio: tuneNumber(overrides, "safeTargetHealHpRatio", "TUICRAFT_SAFE_TARGET_HEAL_HP_RATIO", 0, 1),
+    unsafeTargetHealHpRatio: tuneNumber(
+      overrides,
+      "unsafeTargetHealHpRatio",
+      "TUICRAFT_UNSAFE_TARGET_HEAL_HP_RATIO",
+      0,
+      1
+    ),
+    goDeeperHpRatio: tuneNumber(overrides, "goDeeperHpRatio", "TUICRAFT_GO_DEEPER_HP_RATIO", 0, 1),
+    judgeBossHpRatio: tuneNumber(overrides, "judgeBossHpRatio", "TUICRAFT_JUDGE_BOSS_HP_RATIO", 0, 1),
+    judgeMobHpRatio: tuneNumber(overrides, "judgeMobHpRatio", "TUICRAFT_JUDGE_MOB_HP_RATIO", 0, 1),
+    judgeRetreatCandidateHpRatio: tuneNumber(
+      overrides,
+      "judgeRetreatCandidateHpRatio",
+      "TUICRAFT_JUDGE_RETREAT_HP_RATIO",
+      0,
+      1
+    ),
+    earlyBossAvoidPlayerLevel: tuneInteger(
+      overrides,
+      "earlyBossAvoidPlayerLevel",
+      "TUICRAFT_EARLY_BOSS_AVOID_PLAYER_LEVEL",
+      1,
+      100
+    ),
+    earlyBossAvoidDistance: tuneInteger(
+      overrides,
+      "earlyBossAvoidDistance",
+      "TUICRAFT_EARLY_BOSS_AVOID_DISTANCE",
+      0,
+      100
+    ),
+    earlyBossContactDistance: tuneInteger(
+      overrides,
+      "earlyBossContactDistance",
+      "TUICRAFT_EARLY_BOSS_CONTACT_DISTANCE",
+      0,
+      100
+    ),
+    maxWeaponUpgrade: tuneInteger(overrides, "maxWeaponUpgrade", "TUICRAFT_MAX_WEAPON_UPGRADE", 0, 20),
+    maxArmorUpgrade: tuneInteger(overrides, "maxArmorUpgrade", "TUICRAFT_MAX_ARMOR_UPGRADE", 0, 20),
+    upgradeCostBaseGold: tuneInteger(overrides, "upgradeCostBaseGold", "TUICRAFT_UPGRADE_COST_BASE_GOLD", 1, 10_000)
+  };
+}
+
+function tuneNumber(
+  overrides: Partial<BotTuningConfig>,
+  key: keyof BotTuningConfig,
+  envName: string,
+  min: number,
+  max: number
+): number {
+  return clampNumber(overrides[key] ?? readNumberEnv(envName, DEFAULT_BOT_TUNING[key]), min, max);
+}
+
+function tuneInteger(
+  overrides: Partial<BotTuningConfig>,
+  key: keyof BotTuningConfig,
+  envName: string,
+  min: number,
+  max: number
+): number {
+  return clampInteger(overrides[key] ?? readNumberEnv(envName, DEFAULT_BOT_TUNING[key]), min, max);
 }
 
 function parseJudgeConfigs(raw = process.env.TUICRAFT_JUDGE_MODELS ?? Bun.env.TUICRAFT_JUDGE_MODELS ?? DEFAULT_JUDGE_MODELS): JudgeConfig[] {

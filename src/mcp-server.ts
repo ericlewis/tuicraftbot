@@ -157,6 +157,26 @@ server.registerTool(
       chatEnabled: z.boolean().default(true),
       chatMaxMessages: z.number().int().min(0).max(10).optional(),
       chatCooldownMs: z.number().int().min(30000).max(900000).optional(),
+      tuning: z
+        .object({
+          townHealHpRatio: z.number().min(0).max(1).optional(),
+          questBossPreEngageRetreatHpRatio: z.number().min(0).max(1).optional(),
+          questBossEngagedRetreatHpRatio: z.number().min(0).max(1).optional(),
+          questBossMinFightHpRatio: z.number().min(0).max(1).optional(),
+          safeTargetHealHpRatio: z.number().min(0).max(1).optional(),
+          unsafeTargetHealHpRatio: z.number().min(0).max(1).optional(),
+          goDeeperHpRatio: z.number().min(0).max(1).optional(),
+          judgeBossHpRatio: z.number().min(0).max(1).optional(),
+          judgeMobHpRatio: z.number().min(0).max(1).optional(),
+          judgeRetreatCandidateHpRatio: z.number().min(0).max(1).optional(),
+          earlyBossAvoidPlayerLevel: z.number().int().min(1).max(100).optional(),
+          earlyBossAvoidDistance: z.number().int().min(0).max(100).optional(),
+          earlyBossContactDistance: z.number().int().min(0).max(100).optional(),
+          maxWeaponUpgrade: z.number().int().min(0).max(20).optional(),
+          maxArmorUpgrade: z.number().int().min(0).max(20).optional(),
+          upgradeCostBaseGold: z.number().int().min(1).max(10000).optional()
+        })
+        .optional(),
       accountUsername: z.string().min(1).optional(),
       accountPassword: z.string().min(1).optional(),
       characterName: z.string().min(1).optional()
