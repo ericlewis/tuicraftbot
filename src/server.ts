@@ -1087,7 +1087,11 @@ class BotRunner {
       if (doorStep) {
         return { label: "enter dungeon", key: doorStep };
       }
-      return { label: "probe town", key: "d" };
+      const hiddenDoorStep = this.hiddenDoorResetStep(state);
+      if (hiddenDoorStep) {
+        return { label: "reset hidden dungeon doorway", key: hiddenDoorStep };
+      }
+      return this.nextWinProbeAction(run);
     }
 
     if (state.inDungeon) {
@@ -1413,6 +1417,18 @@ class BotRunner {
 
   private hasAcceptedEliteQuest(run: BotRunState, state: ParsedGameState): boolean {
     return run.questAccepted || state.questInProgress;
+  }
+
+  private hiddenDoorResetStep(state: ParsedGameState): string | undefined {
+    if (!state.inTown || !state.player || state.entities.some((entity) => entity.kind === "D")) {
+      return undefined;
+    }
+    const row = state.grid[state.player.y] ?? [];
+    const rightWallX = row.findIndex((char, index) => index > state.player!.x && char === "█");
+    if (rightWallX !== -1 && rightWallX - state.player.x <= 1) {
+      return "a";
+    }
+    return undefined;
   }
 
   private nextWinProbeAction(run: BotRunState): BotAction {
