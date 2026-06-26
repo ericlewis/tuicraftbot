@@ -1297,6 +1297,11 @@ class BotRunner {
           return { label: "take dungeon door", key: deeperStep };
         }
       }
+
+      const safeProbeStep = this.safeDungeonProbeStep(state);
+      if (safeProbeStep) {
+        return { label: "probe dungeon safely", key: safeProbeStep };
+      }
     }
 
     return this.nextWinProbeAction(run);
@@ -1875,6 +1880,32 @@ class BotRunner {
     }
 
     return best?.key;
+  }
+
+  private safeDungeonProbeStep(state: ParsedGameState): string | undefined {
+    const awayFromDoor = this.stepAwayFrom(state, ["D"], { blockedChars: ["D"] });
+    if (awayFromDoor) {
+      return awayFromDoor;
+    }
+    if (!state.player) {
+      return undefined;
+    }
+    const directions: Array<[string, number, number]> = [
+      ["d", 1, 0],
+      ["s", 0, 1],
+      ["w", 0, -1],
+      ["a", -1, 0]
+    ];
+    for (const [key, dx, dy] of directions) {
+      const char = state.grid[state.player.y + dy]?.[state.player.x + dx];
+      if (char === "D") {
+        continue;
+      }
+      if (this.isWalkable(char, false)) {
+        return key;
+      }
+    }
+    return undefined;
   }
 
   private isWalkable(char: string | undefined, isTarget: boolean): boolean {
