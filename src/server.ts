@@ -483,6 +483,7 @@ type GameEntity = Point & {
 
 type ParsedGameState = {
   mapName?: string;
+  mapLevel?: number;
   level: number;
   hp?: { current: number; max: number };
   xp?: { current: number; max: number };
@@ -495,6 +496,7 @@ type ParsedGameState = {
   text: string;
   questInProgress: boolean;
   questComplete: boolean;
+  dead: boolean;
   winText: boolean;
 };
 
@@ -786,6 +788,10 @@ class BotRunner {
       return undefined;
     }
 
+    if (state.dead) {
+      return { label: "recover from death", command: "/stuck" };
+    }
+
     if (state.questInProgress) {
       run.questAccepted = true;
     }
@@ -838,22 +844,28 @@ class BotRunner {
         }
       }
 
-      const adjacentEnemy = this.hasAdjacent(state, ["M", "B"]);
+      const shouldHuntBoss =
+        run.questAccepted &&
+        Boolean(state.hp && hpRatio > 0.88) &&
+        state.level >= Math.max(3, state.mapLevel ?? 3);
+      const adjacentEnemy = this.hasAdjacent(state, shouldHuntBoss ? ["M", "B"] : ["M"]);
       if (adjacentEnemy) {
         run.lastAttackAt = Date.now();
         return { label: "attack adjacent enemy", key: "space" };
       }
 
-      const shouldHuntBoss = run.questAccepted && Boolean(state.hp && hpRatio > 0.82) && state.level >= 2;
       const targetKinds = shouldHuntBoss ? ["B", "M"] : ["M"];
       const fightStep = this.stepToward(state, targetKinds, "adjacent");
       if (fightStep) {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
       }
 
-      const deeperStep = this.stepToward(state, ["D"], "onto");
-      if (deeperStep) {
-        return { label: "take dungeon door", key: deeperStep };
+      const canGoDeeper = state.level >= (state.mapLevel ?? 1) + 1 && hpRatio > 0.85;
+      if (canGoDeeper) {
+        const deeperStep = this.stepToward(state, ["D"], "onto");
+        if (deeperStep) {
+          return { label: "take dungeon door", key: deeperStep };
+        }
       }
     }
 
@@ -862,8 +874,13 @@ class BotRunner {
 
   private parseGameState(screen: ScreenSnapshot): ParsedGameState {
     const mapName = screen.text.match(/\[Map: ([^\]]+)\]/)?.[1];
-    const level = Number(screen.text.match(/\bLvl\s+(\d+)/)?.[1] ?? 1);
-    const hpMatch = screen.text.match(/HP:\s*(\d+)\/(\d+)/);
+    const mapLevelMatch = mapName?.match(/\(Lvl\s+(\d+)\)/);
+    const characterText = screen.lines.slice(0, 12).join("\n");
+    const levelMatch =
+      characterText.match(/\bLvl\s+(\d+)\s+\((Warrior|Rogue|Mage)\)/) ??
+      characterText.match(/\(Lvl\s+(\d+)\)/);
+    const level = Number(levelMatch?.[1] ?? 1);
+    const hpMatch = screen.text.match(/(?:Your\s+)?HP:\s*(\d+)\/(\d+)/);
     const xpMatch = screen.text.match(/XP:\s*(\d+)\/(\d+)/);
     const goldMatch = screen.text.match(/GP:\s*(\d+)g/);
     const grid: string[][] = [];
@@ -886,6 +903,7 @@ class BotRunner {
 
     return {
       mapName,
+      mapLevel: mapLevelMatch ? Number(mapLevelMatch[1]) : undefined,
       level,
       hp: hpMatch ? { current: Number(hpMatch[1]), max: Number(hpMatch[2]) } : undefined,
       xp: xpMatch ? { current: Number(xpMatch[1]), max: Number(xpMatch[2]) } : undefined,
@@ -898,6 +916,7 @@ class BotRunner {
       text: screen.text,
       questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill/i.test(screen.text),
       questComplete: /Status:\s*Complete|Quest complete|Reward claimed/i.test(screen.text),
+      dead: /You are dead|You have died|HP:\s*0\//i.test(screen.text),
       winText: /you win|victory|congratulations|world saved|final boss defeated|game cleared/i.test(screen.text)
     };
   }
