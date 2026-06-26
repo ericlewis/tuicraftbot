@@ -1350,6 +1350,9 @@ class BotRunner {
       return false;
     }
     const label = action.label.toLowerCase();
+    if (label.includes("sidestep elite target")) {
+      return false;
+    }
     return Boolean(
       state.targetIsEliteOrBoss ||
         this.nearestDistance(state, ["B"]) !== undefined ||
