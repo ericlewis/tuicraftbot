@@ -1688,8 +1688,10 @@ class BotRunner {
     const gold = state.gold ?? 0;
     const weaponUpgrade = state.weaponUpgrade ?? 0;
     const armorUpgrade = state.armorUpgrade ?? 0;
-    const weaponCost = tuning.upgradeCostBaseGold * (weaponUpgrade + 1);
-    const armorCost = tuning.upgradeCostBaseGold * (armorUpgrade + 1);
+    const visibleWeaponCost = state.text.match(/Weapon:\s*\+\d+\s+\(Cost:\s*(\d+)g\)/i)?.[1];
+    const visibleArmorCost = state.text.match(/Armor\s*:\s*\+\d+\s+\(Cost:\s*(\d+)g\)/i)?.[1];
+    const weaponCost = visibleWeaponCost ? Number(visibleWeaponCost) : tuning.upgradeCostBaseGold * (weaponUpgrade + 1);
+    const armorCost = visibleArmorCost ? Number(visibleArmorCost) : tuning.upgradeCostBaseGold * (armorUpgrade + 1);
 
     if (weaponUpgrade < tuning.maxWeaponUpgrade && gold >= weaponCost) {
       return { label: "buy weapon upgrade", command: "/buy 1" };
