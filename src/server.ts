@@ -598,6 +598,7 @@ type ParsedGameState = {
   sellableItemId?: number;
   targetLevel?: number;
   targetIsEliteOrBoss: boolean;
+  targetIsBoss: boolean;
   targetText?: string;
   inTown: boolean;
   inDungeon: boolean;
@@ -1225,9 +1226,20 @@ class BotRunner {
       if (this.nextMerchantCommand(state, run.tuning) && !canFightQuestBoss) {
         return { label: "bail to buy upgrade", command: "/stuck" };
       }
-      const eliteTooStrong = Boolean(
-        state.targetIsEliteOrBoss && !canFightQuestBoss && state.targetLevel && state.targetLevel > state.level
+      const manageableElite = Boolean(
+        state.targetIsEliteOrBoss &&
+          !state.targetIsBoss &&
+          state.targetLevel &&
+          state.targetLevel <= allowedTargetLevel
       );
+      if (manageableElite && hpRatio >= run.tuning.unsafeTargetHealHpRatio) {
+        run.lastAttackAt = Date.now();
+        return { label: "chip elite target", key: "space" };
+      }
+      if (manageableElite) {
+        return { label: "bail to heal after elite chip", command: "/stuck" };
+      }
+      const eliteTooStrong = Boolean(state.targetIsEliteOrBoss && !canFightQuestBoss && state.targetLevel);
       if (eliteTooStrong) {
         const awayStep = this.stepAwayFrom(state, ["M", "B"], { blockedChars: ["D"] });
         if (awayStep) {
@@ -1238,6 +1250,7 @@ class BotRunner {
       const targetOverLevel = Boolean(state.targetLevel && state.targetLevel > allowedTargetLevel);
       const eliteBossContact = Boolean(
         state.targetIsEliteOrBoss &&
+          state.targetIsBoss &&
           !canFightQuestBoss &&
           nearestBoss !== undefined &&
           nearestBoss <= run.tuning.earlyBossContactDistance
@@ -1356,7 +1369,7 @@ class BotRunner {
       return false;
     }
     const label = action.label.toLowerCase();
-    if (label.includes("sidestep elite target")) {
+    if (label.includes("sidestep elite target") || label.includes("chip elite target")) {
       return false;
     }
     return Boolean(
@@ -1642,6 +1655,7 @@ class BotRunner {
       sellableItemId: sellableItemMatch ? Number(sellableItemMatch[1]) : undefined,
       targetLevel: targetLevelMatch ? Number(targetLevelMatch[1]) : undefined,
       targetIsEliteOrBoss: /elite|boss|\*/i.test(targetPanelText),
+      targetIsBoss: /boss|Shadow Overlord/i.test(targetPanelText),
       targetText: targetPanelText ? normalizeWhitespace(targetPanelText).slice(0, 160) : undefined,
       inTown,
       inDungeon,
