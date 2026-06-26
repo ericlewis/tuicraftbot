@@ -1197,6 +1197,9 @@ class BotRunner {
       const nearestBoss = this.nearestDistance(state, ["B"]);
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
       const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
+      const lowLevelFarming = state.level < 3 && !questBossRun;
+      const lowLevelHealFloor = lowLevelFarming ? 0.55 : 0;
+      const unsafeHealThreshold = Math.max(run.tuning.unsafeTargetHealHpRatio, lowLevelHealFloor);
       if (!questBossRun && state.mapLevel && state.mapLevel > allowedTargetLevel) {
         return { label: "bail from over-depth dungeon", command: "/stuck" };
       }
@@ -1250,7 +1253,7 @@ class BotRunner {
           state.targetLevel &&
           state.targetLevel <= allowedTargetLevel
       );
-      if (manageableElite && hpRatio >= run.tuning.unsafeTargetHealHpRatio) {
+      if (manageableElite && hpRatio >= unsafeHealThreshold) {
         run.lastAttackAt = Date.now();
         return { label: "chip elite target", key: "space" };
       }
@@ -1283,7 +1286,10 @@ class BotRunner {
       const hasSafeTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
-      const healThreshold = hasSafeTarget ? run.tuning.safeTargetHealHpRatio : run.tuning.unsafeTargetHealHpRatio;
+      const healThreshold = Math.max(
+        hasSafeTarget ? run.tuning.safeTargetHealHpRatio : run.tuning.unsafeTargetHealHpRatio,
+        lowLevelHealFloor
+      );
       if (hpRatio < healThreshold) {
         return { label: "bail to heal", command: "/stuck" };
       }
