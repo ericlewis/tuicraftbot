@@ -885,7 +885,11 @@ class BotRunner {
           command: "/stuck"
         };
       }
-      if (hpRatio < 0.82) {
+      const hasSafeTarget = Boolean(
+        state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
+      );
+      const healThreshold = hasSafeTarget ? 0.45 : 0.68;
+      if (hpRatio < healThreshold) {
         return { label: "bail to heal", command: "/stuck" };
       }
 
@@ -1141,6 +1145,7 @@ class BotRunner {
       /Unhandled[^\n│]*/gi,
       /Exception[^\n│]*/gi,
       /Traceback[^\n│]*/gi,
+      /\[object Object\]/gi,
       /\bundefined\b/gi,
       /\bNaN\b/g
     ];
