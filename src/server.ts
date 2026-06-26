@@ -491,6 +491,9 @@ type ParsedGameState = {
   hp?: { current: number; max: number };
   xp?: { current: number; max: number };
   gold?: number;
+  weaponUpgrade?: number;
+  armorUpgrade?: number;
+  sellableItemId?: number;
   targetLevel?: number;
   targetIsEliteOrBoss: boolean;
   targetText?: string;
@@ -846,6 +849,15 @@ class BotRunner {
         return { label: "rest in town", key: "space" };
       }
 
+      const merchantCommand = this.nextMerchantCommand(state);
+      if (merchantCommand) {
+        const merchantStep = this.stepToward(state, ["S"], "adjacent");
+        if (merchantStep) {
+          return { label: "go to merchant", key: merchantStep };
+        }
+        return merchantCommand;
+      }
+
       if (run.questComplete || state.questComplete) {
         const questStep = this.stepToward(state, ["Q"], "adjacent");
         if (questStep) {
@@ -931,7 +943,10 @@ class BotRunner {
     const level = Number(levelMatch?.[1] ?? 1);
     const hpMatch = screen.text.match(/(?:Your\s+)?HP:\s*(\d+)\/(\d+)/);
     const xpMatch = screen.text.match(/XP:\s*(\d+)\/(\d+)/);
-    const goldMatch = screen.text.match(/GP:\s*(\d+)g/);
+    const goldMatch = screen.text.match(/(?:GP|Gold):\s*(\d+)g/);
+    const weaponUpgradeMatch = screen.text.match(/Wpn:[^\n│]*\+(\d+)/) ?? screen.text.match(/Weapon:\s*\+(\d+)/);
+    const armorUpgradeMatch = screen.text.match(/Arm:[^\n│]*\+(\d+)/) ?? screen.text.match(/Armor\s*:\s*\+(\d+)/);
+    const sellableItemMatch = /Sellable Items:/i.test(screen.text) ? screen.text.match(/\[(\d+)\]\s+[^\n│]+?\(\+?\d+g\)/) : undefined;
     const targetPanelText = screen.text.match(/--- Target ---([\s\S]*?)(?:--- Legend ---|Nearby:|┌─ Combat Log|$)/)?.[1] ?? "";
     const targetLevelMatch = targetPanelText.match(/Level:\s*(\d+)/);
     const grid: string[][] = [];
@@ -959,6 +974,9 @@ class BotRunner {
       hp: hpMatch ? { current: Number(hpMatch[1]), max: Number(hpMatch[2]) } : undefined,
       xp: xpMatch ? { current: Number(xpMatch[1]), max: Number(xpMatch[2]) } : undefined,
       gold: goldMatch ? Number(goldMatch[1]) : undefined,
+      weaponUpgrade: weaponUpgradeMatch ? Number(weaponUpgradeMatch[1]) : undefined,
+      armorUpgrade: armorUpgradeMatch ? Number(armorUpgradeMatch[1]) : undefined,
+      sellableItemId: sellableItemMatch ? Number(sellableItemMatch[1]) : undefined,
       targetLevel: targetLevelMatch ? Number(targetLevelMatch[1]) : undefined,
       targetIsEliteOrBoss: /elite|boss|\*/i.test(targetPanelText),
       targetText: targetPanelText ? normalizeWhitespace(targetPanelText).slice(0, 160) : undefined,
@@ -1002,6 +1020,26 @@ class BotRunner {
       targetIsEliteOrBoss: state.targetIsEliteOrBoss,
       target: state.targetText
     });
+  }
+
+  private nextMerchantCommand(state: ParsedGameState): BotAction | undefined {
+    if (state.sellableItemId) {
+      return { label: "sell spare loot", command: `/sell ${state.sellableItemId}` };
+    }
+
+    const gold = state.gold ?? 0;
+    const weaponUpgrade = state.weaponUpgrade ?? 0;
+    const armorUpgrade = state.armorUpgrade ?? 0;
+    const weaponCost = 25 * (weaponUpgrade + 1);
+    const armorCost = 25 * (armorUpgrade + 1);
+
+    if (weaponUpgrade < 4 && gold >= weaponCost) {
+      return { label: "buy weapon upgrade", command: "/buy 1" };
+    }
+    if (armorUpgrade < 4 && gold >= armorCost) {
+      return { label: "buy armor upgrade", command: "/buy 2" };
+    }
+    return undefined;
   }
 
   private hasAdjacent(state: ParsedGameState, kinds: string[]): boolean {
