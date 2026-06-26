@@ -1420,11 +1420,16 @@ class BotRunner {
       );
     }
 
-    if (
-      hpRatio < run.tuning.judgeRetreatCandidateHpRatio ||
+    const nearestBoss = this.nearestDistance(state, ["B"]);
+    const bossThreatening =
       state.targetIsEliteOrBoss ||
-      this.nearestDistance(state, ["B"]) !== undefined
-    ) {
+      this.hasAdjacent(state, ["B"]) ||
+      Boolean(
+        state.level < run.tuning.earlyBossAvoidPlayerLevel &&
+          nearestBoss !== undefined &&
+          nearestBoss <= run.tuning.earlyBossContactDistance
+      );
+    if (hpRatio < run.tuning.judgeRetreatCandidateHpRatio || bossThreatening) {
       this.addJudgeCandidate(
         candidates,
         "retreat_stuck",
@@ -2397,7 +2402,21 @@ function buildJudgePayload(
 ): Record<string, unknown> {
   const hpRatio = state.hp ? state.hp.current / state.hp.max : undefined;
   const bossVisible = state.entities.some((entity) => entity.kind === "B");
+  const bossDistances = state.player
+    ? state.entities
+        .filter((entity) => entity.kind === "B")
+        .map((entity) => manhattan(state.player!, entity))
+    : [];
+  const nearestBossDistance = bossDistances.length > 0 ? Math.min(...bossDistances) : undefined;
+  const bossThreatening =
+    state.targetIsEliteOrBoss ||
+    Boolean(nearestBossDistance !== undefined && nearestBossDistance <= tuning.earlyBossContactDistance);
   const gearReady = !state.weaponMissing && !state.armorMissing;
+  const safeMobFarming =
+    state.inDungeon &&
+    !bossThreatening &&
+    state.entities.some((entity) => entity.kind === "M") &&
+    (hpRatio ?? 1) > tuning.safeTargetHealHpRatio;
   const bossEligible =
     acceptedEliteQuest &&
     !state.questComplete &&
@@ -2413,8 +2432,10 @@ function buildJudgePayload(
       "If questComplete is true, prefer a claim/turn-in candidate over fighting, farming, shopping, or exploration.",
       "If noActiveQuest is true, do not hunt Shadow Overlord unless a new Elite Slayer quest has been accepted.",
       "Treat weaponMissing or armorMissing as a boss-blocking gear problem; prefer gear repair or town actions when candidates allow it.",
+      "Missing armor alone is not a retreat reason for full-health level-appropriate mob farming, especially at level 1.",
       `Prefer boss progress only when bossEligible is true and HP is above ${tuning.questBossMinFightHpRatio}.`,
-      `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, the target is over-level, or no safe progress candidate exists.`,
+      `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, the target is over-level, a boss is adjacent/targeted, or no safe progress candidate exists.`,
+      "A distant visible boss is not a retreat reason when safeMobFarming is true.",
       "Do not choose regular mob farming over a visible boss when bossEligible is true, unless HP is below the configured boss threshold.",
       "Do not invent commands or choose an action outside the candidate list."
     ],
@@ -2422,6 +2443,9 @@ function buildJudgePayload(
       bossEligible,
       gearReady,
       bossVisible,
+      bossThreatening,
+      nearestBossDistance,
+      safeMobFarming,
       shouldClaimQuest: state.questComplete,
       shouldStopBossHunt: state.noActiveQuest,
       thresholds: {
@@ -2487,14 +2511,14 @@ async function callJudgeModel(
       {
         role: "system",
         content:
-          "You are a tactical arbiter for a terminal RPG automation. Optimize for the objective and rules in the user JSON, using decisionContext as the canonical summary. Return only compact JSON with keys choiceId, confidence, and reason. The choiceId must be one of the supplied candidate ids."
+          "You are a tactical arbiter for a terminal RPG automation. Optimize for the objective and rules in the user JSON, using decisionContext as the canonical summary. Return only compact JSON with keys choiceId, confidence, and reason. The choiceId must be one of the supplied candidate ids. Keep reason under 12 words."
       },
       {
         role: "user",
         content: JSON.stringify(payload)
       }
     ],
-    max_output_tokens: 220
+    max_output_tokens: 360
   };
   if (config.reasoningEffort) {
     body.reasoning = { effort: config.reasoningEffort };
