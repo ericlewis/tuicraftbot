@@ -907,6 +907,9 @@ class BotRunner {
       const allowedTargetLevel = state.level + 1;
       const nearestBoss = this.nearestDistance(state, ["B"]);
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
+      if (this.hasAcceptedEliteQuest(run, state) && state.level >= 4 && hpRatio < 0.95) {
+        return { label: "bail to top off before boss", command: "/stuck" };
+      }
       if (state.level < 3 && nearestBoss !== undefined && nearestBoss <= 3) {
         return { label: "bail from nearby boss", command: "/stuck" };
       }
@@ -970,12 +973,16 @@ class BotRunner {
     const weaponUpgrade = state.weaponUpgrade ?? 0;
     const armorUpgrade = state.armorUpgrade ?? 0;
     return (
-      run.questAccepted &&
+      this.hasAcceptedEliteQuest(run, state) &&
       hpRatio > 0.9 &&
       state.level >= Math.max(4, state.mapLevel ?? 4) &&
       weaponUpgrade >= 2 &&
       armorUpgrade >= 2
     );
+  }
+
+  private hasAcceptedEliteQuest(run: BotRunState, state: ParsedGameState): boolean {
+    return run.questAccepted || state.questInProgress;
   }
 
   private nextWinProbeAction(run: BotRunState): BotAction {
@@ -1037,7 +1044,7 @@ class BotRunner {
       entities,
       grid,
       text: screen.text,
-      questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill/i.test(screen.text),
+      questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill|Quest:\s*Elite Slayer/i.test(screen.text),
       questComplete: /Status:\s*Complete|Quest complete|Reward claimed/i.test(screen.text),
       dead: hpMatch ? Number(hpMatch[1]) <= 0 : /You are dead|You have died/i.test(screen.text),
       winText: this.hasSystemWinText(screen)
