@@ -649,6 +649,7 @@ type BotRunState = {
   questComplete: boolean;
   starterArmorChecked: boolean;
   bossLureMoves: number;
+  bossChipMoves: number;
   lastStateSignature?: string;
   judgeEnabled: boolean;
   judgeConfigs: JudgeConfig[];
@@ -771,6 +772,7 @@ class BotRunner {
       questComplete: false,
       starterArmorChecked: false,
       bossLureMoves: 0,
+      bossChipMoves: 0,
       judgeEnabled,
       judgeConfigs,
       judgeMaxCalls: clampInteger(
@@ -1132,6 +1134,7 @@ class BotRunner {
 
     if (state.inTown) {
       run.bossLureMoves = 0;
+      run.bossChipMoves = 0;
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
       const readyForEliteQuest = state.level >= 3;
       if (state.hp && hpRatio < run.tuning.townHealHpRatio) {
@@ -1205,6 +1208,17 @@ class BotRunner {
       const unsafeHealThreshold = Math.max(run.tuning.unsafeTargetHealHpRatio, lowLevelHealFloor);
       if (!questBossRun && state.mapLevel && state.mapLevel > allowedTargetLevel) {
         return { label: "bail from over-depth dungeon", command: "/stuck" };
+      }
+      const bossBlockingEntry = Boolean(
+        !canFightQuestBoss &&
+          nearestBoss !== undefined &&
+          nearestBoss <= run.tuning.earlyBossAvoidDistance &&
+          (state.targetIsBoss || this.hasAdjacent(state, ["B"]))
+      );
+      if (bossBlockingEntry && hpRatio > 0.9 && run.bossChipMoves < 1) {
+        run.bossChipMoves += 1;
+        run.lastAttackAt = Date.now();
+        return { label: "chip blocking boss", key: "space" };
       }
       const engagedQuestBoss = Boolean(
         questBossRun && state.targetIsEliteOrBoss && state.targetLevel && state.targetLevel <= state.level
@@ -1411,7 +1425,12 @@ class BotRunner {
       return false;
     }
     const label = action.label.toLowerCase();
-    if (label.includes("sidestep elite target") || label.includes("chip elite target") || label.includes("lure boss")) {
+    if (
+      label.includes("sidestep elite target") ||
+      label.includes("chip elite target") ||
+      label.includes("chip blocking boss") ||
+      label.includes("lure boss")
+    ) {
       return false;
     }
     return Boolean(
