@@ -887,6 +887,9 @@ class BotRunner {
     if (/Choose a password/i.test(text)) {
       return { label: "enter generated password", text: `${run.accountPassword}\r`, redact: true };
     }
+    if (/Select World Instance|World Instance \(Seed\)|Enter last played world seed|Last Seed:/i.test(text)) {
+      return { label: "enter last played world", text: "1\r" };
+    }
     if (/Select a character/i.test(text)) {
       if (run.reuseExistingAccount) {
         const characterSlot = run.characterName
@@ -902,9 +905,6 @@ class BotRunner {
     }
     if (/Type 'new' to create a new character/i.test(text)) {
       return { label: "create new character", text: "new\r" };
-    }
-    if (/Select World Instance|Enter last played world seed/i.test(text)) {
-      return { label: "enter last played world", text: "1\r" };
     }
     if (/Choose Character Class/i.test(text)) {
       return { label: "choose warrior", text: "1\r" };
