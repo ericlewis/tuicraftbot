@@ -492,6 +492,7 @@ type ParsedGameState = {
   xp?: { current: number; max: number };
   gold?: number;
   targetLevel?: number;
+  targetIsEliteOrBoss: boolean;
   inTown: boolean;
   inDungeon: boolean;
   player?: Point;
@@ -870,7 +871,11 @@ class BotRunner {
 
     if (state.inDungeon) {
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
-      const targetIsRisky = Boolean(state.targetLevel && state.targetLevel > state.level);
+      const allowedTargetLevel = state.level + 1;
+      const targetIsRisky = Boolean(
+        state.targetLevel &&
+          (state.targetLevel > allowedTargetLevel || (state.targetIsEliteOrBoss && state.level < 3))
+      );
       if (targetIsRisky) {
         return { label: "bail from over-level target", command: "/stuck" };
       }
@@ -917,7 +922,8 @@ class BotRunner {
     const hpMatch = screen.text.match(/(?:Your\s+)?HP:\s*(\d+)\/(\d+)/);
     const xpMatch = screen.text.match(/XP:\s*(\d+)\/(\d+)/);
     const goldMatch = screen.text.match(/GP:\s*(\d+)g/);
-    const targetLevelMatch = screen.text.match(/--- Target ---[\s\S]*?Level:\s*(\d+)/);
+    const targetPanelText = screen.text.match(/--- Target ---([\s\S]*?)(?:--- Legend ---|Nearby:|┌─ Combat Log|$)/)?.[1] ?? "";
+    const targetLevelMatch = targetPanelText.match(/Level:\s*(\d+)/);
     const grid: string[][] = [];
     const entities: GameEntity[] = [];
     let player: Point | undefined;
@@ -944,6 +950,7 @@ class BotRunner {
       xp: xpMatch ? { current: Number(xpMatch[1]), max: Number(xpMatch[2]) } : undefined,
       gold: goldMatch ? Number(goldMatch[1]) : undefined,
       targetLevel: targetLevelMatch ? Number(targetLevelMatch[1]) : undefined,
+      targetIsEliteOrBoss: /elite|boss|\*/i.test(targetPanelText),
       inTown: Boolean(mapName && /Town|Abbey/i.test(mapName)),
       inDungeon: Boolean(mapName && !/Town|Abbey/i.test(mapName)),
       player,
