@@ -57,6 +57,15 @@ curl -X POST http://localhost:8787/api/bot/start \
   --data '{"mode":"stress","durationSeconds":10,"intervalMs":120,"maxActions":80}'
 ```
 
+To resume an existing character, include the account credentials. Passwords are
+used only for the login prompt and are redacted from raw telemetry:
+
+```sh
+curl -X POST http://localhost:8787/api/bot/start \
+  -H 'content-type: application/json' \
+  --data '{"mode":"win","accountUsername":"codex...","accountPassword":"...","characterName":"Codex..."}'
+```
+
 Modes:
 
 - `smoke`: creates a disposable account/character if needed, opens help,

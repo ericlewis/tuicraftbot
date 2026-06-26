@@ -48,6 +48,9 @@ type BotRunOptions = {
   durationMs?: number;
   intervalMs?: number;
   maxActions?: number;
+  accountUsername?: string;
+  accountPassword?: string;
+  characterName?: string;
 };
 
 type BotRunSummary = {
@@ -516,6 +519,7 @@ type BotRunState = {
   accountUsername: string;
   accountPassword: string;
   characterName: string;
+  reuseExistingAccount: boolean;
   findings: string[];
   findingKeys: Set<string>;
   smokeStep: number;
@@ -572,6 +576,10 @@ class BotRunner {
     const mode = options.mode ?? "smoke";
     const defaults = defaultBotOptions(mode);
     const suffix = Math.random().toString(36).slice(2, 8);
+    const requestedUsername = options.accountUsername?.trim();
+    const requestedPassword = options.accountPassword?.trim();
+    const requestedCharacter = options.characterName?.trim();
+    const reuseExistingAccount = Boolean(requestedUsername && requestedPassword);
     const run: BotRunState = {
       id: `bot-${Date.now().toString(36)}-${suffix}`,
       mode,
@@ -582,9 +590,10 @@ class BotRunner {
       intervalMs: clampInteger(options.intervalMs ?? defaults.intervalMs, 100, 10_000),
       maxActions: clampInteger(options.maxActions ?? defaults.maxActions, 1, 5_000),
       actionCount: 0,
-      accountUsername: `codex${Date.now().toString(36).slice(-7)}${suffix.slice(0, 2)}`,
-      accountPassword: `codex-pass-${suffix}`,
-      characterName: `Codex${suffix}`,
+      accountUsername: requestedUsername || `codex${Date.now().toString(36).slice(-7)}${suffix.slice(0, 2)}`,
+      accountPassword: requestedPassword || `codex-pass-${suffix}`,
+      characterName: requestedCharacter || `Codex${suffix}`,
+      reuseExistingAccount,
       findings: [],
       findingKeys: new Set(),
       smokeStep: 0,
@@ -707,13 +716,35 @@ class BotRunner {
       return { label: "dismiss modal", key: "space" };
     }
     if (/Please log in or register/i.test(text)) {
+      if (run.reuseExistingAccount) {
+        return { label: "choose login", text: "1\r" };
+      }
       return { label: "choose register", text: "2\r" };
+    }
+    if (/Please enter your account username/i.test(text)) {
+      return { label: "enter account username", text: `${run.accountUsername}\r` };
+    }
+    if (/Please enter your password/i.test(text)) {
+      return { label: "enter account password", text: `${run.accountPassword}\r`, redact: true };
     }
     if (/Choose a unique username/i.test(text)) {
       return { label: "enter generated username", text: `${run.accountUsername}\r` };
     }
     if (/Choose a password/i.test(text)) {
       return { label: "enter generated password", text: `${run.accountPassword}\r`, redact: true };
+    }
+    if (/Select a character/i.test(text)) {
+      if (run.reuseExistingAccount) {
+        const characterSlot = run.characterName
+          ? text.match(new RegExp(`Type\\s+(\\d+)\\s+to\\s+load:\\s+${escapeRegExp(run.characterName)}\\b`, "i"))?.[1]
+          : undefined;
+        const firstSlot = text.match(/Type\s+(\d+)\s+to\s+load:/i)?.[1];
+        const slot = characterSlot ?? firstSlot;
+        if (slot) {
+          return { label: "load existing character", text: `${slot}\r` };
+        }
+      }
+      return { label: "create new character", text: "new\r" };
     }
     if (/Type 'new' to create a new character/i.test(text)) {
       return { label: "create new character", text: "new\r" };
@@ -1334,7 +1365,10 @@ function parseBotOptions(body: Record<string, unknown>): BotRunOptions {
     mode: mode === "smoke" || mode === "explore" || mode === "stress" || mode === "win" ? mode : undefined,
     durationMs,
     intervalMs: numberValue(body.intervalMs),
-    maxActions: numberValue(body.maxActions)
+    maxActions: numberValue(body.maxActions),
+    accountUsername: nonEmptyStringValue(body.accountUsername),
+    accountPassword: nonEmptyStringValue(body.accountPassword),
+    characterName: nonEmptyStringValue(body.characterName)
   };
 }
 
@@ -1353,6 +1387,18 @@ function defaultBotOptions(mode: BotMode): Required<Pick<BotRunOptions, "duratio
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function nonEmptyStringValue(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function manhattan(a: Point, b: Point): number {
@@ -1565,6 +1611,9 @@ const INDEX_HTML = String.raw`<!doctype html>
           </select>
           <input id="bot-duration" aria-label="Bot seconds" type="number" min="5" max="600" value="60">
         </div>
+        <input id="bot-account" autocomplete="off" spellcheck="false" placeholder="Account username">
+        <input id="bot-password" autocomplete="off" spellcheck="false" type="password" placeholder="Account password">
+        <input id="bot-character" autocomplete="off" spellcheck="false" placeholder="Character name">
         <div class="row">
           <button class="primary" data-bot-action="start">Run Bot</button>
           <button data-bot-action="stop">Stop Bot</button>
@@ -1608,6 +1657,9 @@ const INDEX_HTML = String.raw`<!doctype html>
     const textInput = document.getElementById("text-input");
     const botMode = document.getElementById("bot-mode");
     const botDuration = document.getElementById("bot-duration");
+    const botAccount = document.getElementById("bot-account");
+    const botPassword = document.getElementById("bot-password");
+    const botCharacter = document.getElementById("bot-character");
     const botMetaEl = document.getElementById("bot-meta");
     const botLogEl = document.getElementById("bot-log");
 
@@ -1712,10 +1764,16 @@ const INDEX_HTML = String.raw`<!doctype html>
       if (action === "restart") post("/api/session/restart").then(renderSession);
       if (action === "stop") post("/api/session/stop").then(renderSession);
       if (botAction === "start") {
-        post("/api/bot/start", {
+        const payload = {
           mode: botMode.value,
           durationSeconds: Number(botDuration.value) || 60
-        }).then(renderBot);
+        };
+        if (botAccount.value.trim() && botPassword.value.trim()) {
+          payload.accountUsername = botAccount.value.trim();
+          payload.accountPassword = botPassword.value.trim();
+          payload.characterName = botCharacter.value.trim();
+        }
+        post("/api/bot/start", payload).then(renderBot);
       }
       if (botAction === "stop") post("/api/bot/stop").then(renderBot);
     });
