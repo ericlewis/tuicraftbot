@@ -833,6 +833,7 @@ class BotRunner {
 
     if (state.inTown) {
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
+      const readyForEliteQuest = state.level >= 3;
       if (state.hp && hpRatio < 0.95) {
         const healStep = this.stepToward(state, ["I"], "onto");
         if (healStep) {
@@ -851,7 +852,7 @@ class BotRunner {
         return { label: "claim quest reward", command: "/quest claim" };
       }
 
-      if (!run.questAccepted && !state.questInProgress) {
+      if (!run.questAccepted && !state.questInProgress && readyForEliteQuest) {
         const questStep = this.stepToward(state, ["Q"], "adjacent");
         if (questStep) {
           return { label: "go to quest board", key: questStep };
