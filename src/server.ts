@@ -96,6 +96,7 @@ type BotRunSummary = {
   lastActionAt?: string;
   accountUsername?: string;
   characterName?: string;
+  accountRegistered?: boolean;
   findings: string[];
   judge?: {
     enabled: boolean;
@@ -622,6 +623,7 @@ type BotRunState = {
   accountPassword: string;
   characterName: string;
   reuseExistingAccount: boolean;
+  accountRegistered: boolean;
   findings: string[];
   findingKeys: Set<string>;
   smokeStep: number;
@@ -685,6 +687,7 @@ class BotRunner {
       lastActionAt: this.run.lastActionAt,
       accountUsername: this.run.accountUsername,
       characterName: this.run.characterName,
+      accountRegistered: this.run.accountRegistered ?? this.run.reuseExistingAccount,
       findings: [...this.run.findings],
       judge: {
         enabled: Boolean(this.run.judgeEnabled),
@@ -737,6 +740,7 @@ class BotRunner {
       accountPassword: requestedPassword || `codex-pass-${suffix}`,
       characterName: requestedCharacter || `Codex${suffix}`,
       reuseExistingAccount,
+      accountRegistered: reuseExistingAccount,
       findings: [],
       findingKeys: new Set(),
       smokeStep: 0,
@@ -914,6 +918,12 @@ class BotRunner {
   }
 
   private chooseSetupAction(run: BotRunState, text: string): BotAction | undefined {
+    if (/Username ['"]?[^'"\n│]+['"]? already taken/i.test(text)) {
+      this.markAccountRegistered(run, "server reported generated username already exists");
+    }
+    if (/Select World Instance|World Instance \(Seed\)|Enter last played world|Last Seed:|Select a character/i.test(text)) {
+      this.markAccountRegistered(run, "account setup advanced past registration");
+    }
     if (/Press any key to dismiss/i.test(text)) {
       return { label: "dismiss modal", key: "space" };
     }
@@ -921,7 +931,7 @@ class BotRunner {
       return { label: "close inventory", key: "escape" };
     }
     if (/Please log in or register/i.test(text)) {
-      if (run.reuseExistingAccount) {
+      if (run.reuseExistingAccount || run.accountRegistered) {
         return { label: "choose login", text: "1\r" };
       }
       return { label: "choose register", text: "2\r" };
@@ -936,13 +946,14 @@ class BotRunner {
       return { label: "enter generated username", text: `${run.accountUsername}\r` };
     }
     if (/Choose a password/i.test(text)) {
+      this.markAccountRegistered(run, "generated account password submitted");
       return { label: "enter generated password", text: `${run.accountPassword}\r`, redact: true };
     }
     if (/Select World Instance|World Instance \(Seed\)|Enter last played world seed|Last Seed:/i.test(text)) {
       return { label: "enter last played world", text: "1\r" };
     }
     if (/Select a character/i.test(text)) {
-      if (run.reuseExistingAccount) {
+      if (run.reuseExistingAccount || run.accountRegistered) {
         const characterSlot = run.characterName
           ? text.match(new RegExp(`Type\\s+(\\d+)\\s+to\\s+load:\\s+${escapeRegExp(run.characterName)}\\b`, "i"))?.[1]
           : undefined;
@@ -967,6 +978,15 @@ class BotRunner {
       return { label: "recover registration choice", text: "2\r" };
     }
     return undefined;
+  }
+
+  private markAccountRegistered(run: BotRunState, reason: string): void {
+    if (run.accountRegistered) {
+      return;
+    }
+    run.accountRegistered = true;
+    this.log("info", "generated account will use login on reconnect", { reason });
+    this.publishStatus();
   }
 
   private detectAccessBlock(screen: ScreenSnapshot): string | undefined {
