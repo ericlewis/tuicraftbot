@@ -869,6 +869,9 @@ class BotRunner {
     if (/Press any key to dismiss/i.test(text)) {
       return { label: "dismiss modal", key: "space" };
     }
+    if (/--- INVENTORY ---|Manage Inventory|Press ESC to close inventory/i.test(text)) {
+      return { label: "close inventory", key: "escape" };
+    }
     if (/Please log in or register/i.test(text)) {
       if (run.reuseExistingAccount) {
         return { label: "choose login", text: "1\r" };
@@ -1647,6 +1650,7 @@ class BotRunner {
       } else {
         if (action.key && ["w", "a", "s", "d", "space", "enter"].includes(action.key)) {
           this.bridge.sendInput({ key: "escape", source: `bot:${run.mode}` });
+          await sleep(60);
         }
         this.bridge.sendInput({
           key: action.key,
