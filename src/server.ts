@@ -887,6 +887,10 @@ class BotRunner {
     if (state.inDungeon) {
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
       const allowedTargetLevel = state.level + 1;
+      const nearestBoss = this.nearestDistance(state, ["B"]);
+      if (state.level < 3 && nearestBoss !== undefined && nearestBoss <= 3) {
+        return { label: "bail from nearby boss", command: "/stuck" };
+      }
       const targetIsRisky = Boolean(
         state.targetLevel &&
           (state.targetLevel > allowedTargetLevel || (state.targetIsEliteOrBoss && state.level < 3))
@@ -989,7 +993,7 @@ class BotRunner {
       questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill/i.test(screen.text),
       questComplete: /Status:\s*Complete|Quest complete|Reward claimed/i.test(screen.text),
       dead: hpMatch ? Number(hpMatch[1]) <= 0 : /You are dead|You have died/i.test(screen.text),
-      winText: /you win|victory|congratulations|world saved|final boss defeated|game cleared/i.test(screen.text)
+      winText: this.hasSystemWinText(screen)
     };
   }
 
@@ -1049,6 +1053,25 @@ class BotRunner {
     return state.entities.some((entity) => {
       return kinds.includes(entity.kind) && manhattan(state.player!, entity) === 1;
     });
+  }
+
+  private nearestDistance(state: ParsedGameState, kinds: string[]): number | undefined {
+    if (!state.player) {
+      return undefined;
+    }
+    const distances = state.entities
+      .filter((entity) => kinds.includes(entity.kind))
+      .map((entity) => manhattan(state.player!, entity));
+    return distances.length > 0 ? Math.min(...distances) : undefined;
+  }
+
+  private hasSystemWinText(screen: ScreenSnapshot): boolean {
+    const nonChatText = screen.lines
+      .map((line) => line.slice(0, 84))
+      .join("\n");
+    return /(?:\[System\]|\[Combat\]|\[Quest\]|victory|congratulations|world saved|final boss defeated|game cleared).*(you win|victory|congratulations|world saved|final boss defeated|game cleared)/i.test(
+      nonChatText
+    );
   }
 
   private stepToward(state: ParsedGameState, kinds: string[], mode: "onto" | "adjacent"): string | undefined {
