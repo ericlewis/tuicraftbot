@@ -1289,7 +1289,7 @@ class BotRunner {
 
       const canGoDeeper =
         !run.questAccepted &&
-        state.level >= (state.mapLevel ?? 1) + 1 &&
+        state.level >= (state.mapLevel ?? 1) + 2 &&
         hpRatio > run.tuning.goDeeperHpRatio;
       if (canGoDeeper) {
         const deeperStep = this.stepToward(state, ["D"], "onto");
