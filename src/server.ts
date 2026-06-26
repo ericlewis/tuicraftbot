@@ -1633,7 +1633,11 @@ class BotRunner {
     let player: Point | undefined;
 
     for (let y = 2; y <= 18; y += 1) {
-      const row = [...(screen.lines[y]?.slice(1, 84) ?? "")];
+      const line = screen.lines[y] ?? "";
+      if (line.includes("Nearby:")) {
+        continue;
+      }
+      const row = [...(line.slice(1, 84) ?? "")];
       grid[y] = row;
       for (let x = 0; x < row.length; x += 1) {
         const kind = row[x];
@@ -1883,9 +1887,13 @@ class BotRunner {
   }
 
   private safeDungeonProbeStep(state: ParsedGameState): string | undefined {
-    const awayFromDoor = this.stepAwayFrom(state, ["D"], { blockedChars: ["D"] });
+    const awayFromDoor = this.hasAdjacent(state, ["D"]) ? this.stepAwayFrom(state, ["D"], { blockedChars: ["D"] }) : undefined;
     if (awayFromDoor) {
       return awayFromDoor;
+    }
+    const visibleEnemyStep = this.greedyStepToward(state, ["M", "B"], { blockedChars: ["D"] });
+    if (visibleEnemyStep) {
+      return visibleEnemyStep;
     }
     if (!state.player) {
       return undefined;
@@ -1906,6 +1914,44 @@ class BotRunner {
       }
     }
     return undefined;
+  }
+
+  private greedyStepToward(state: ParsedGameState, kinds: string[], options: PathfindOptions = {}): string | undefined {
+    if (!state.player) {
+      return undefined;
+    }
+    const targets = state.entities.filter((entity) => kinds.includes(entity.kind));
+    if (targets.length === 0) {
+      return undefined;
+    }
+    const currentDistance = Math.min(...targets.map((target) => manhattan(state.player!, target)));
+    const directions: Array<[string, number, number]> = [
+      ["d", 1, 0],
+      ["s", 0, 1],
+      ["w", 0, -1],
+      ["a", -1, 0]
+    ];
+    let best: { key: string; distance: number } | undefined;
+
+    for (const [key, dx, dy] of directions) {
+      const next = { x: state.player.x + dx, y: state.player.y + dy };
+      const char = state.grid[next.y]?.[next.x];
+      if (char && options.blockedChars?.includes(char)) {
+        continue;
+      }
+      if (!this.isWalkable(char, false)) {
+        continue;
+      }
+      const distance = Math.min(...targets.map((target) => manhattan(next, target)));
+      if (distance >= currentDistance) {
+        continue;
+      }
+      if (!best || distance < best.distance) {
+        best = { key, distance };
+      }
+    }
+
+    return best?.key;
   }
 
   private isWalkable(char: string | undefined, isTarget: boolean): boolean {
