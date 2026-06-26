@@ -109,6 +109,11 @@ bun run bot:resume
 Use `TUICRAFT_JUDGE_MAX_CALLS`, `TUICRAFT_JUDGE_COOLDOWN_MS`, and
 `TUICRAFT_JUDGE_TIMEOUT_MS` to bound cost and latency.
 
+Chat participation is enabled by default, but gated: the bot only replies when
+the visible chat appears to address `Codex...`/`codex` or when a reply is
+strategically needed. It does not proactively spam chat. Use
+`TUICRAFT_CHAT_ENABLED=false` to disable it.
+
 The bot watches the visible terminal for obvious failure text such as
 `Error:`, `Unhandled`, `Exception`, `undefined`, and `NaN`. If the remote game
 server reboots or drops the SSH session during a run, the bot keeps the local

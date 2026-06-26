@@ -154,6 +154,9 @@ server.registerTool(
       judgeModels: z.string().optional(),
       judgeMaxCalls: z.number().int().min(0).max(500).optional(),
       judgeCooldownMs: z.number().int().min(1000).max(60000).optional(),
+      chatEnabled: z.boolean().optional(),
+      chatMaxMessages: z.number().int().min(0).max(10).optional(),
+      chatCooldownMs: z.number().int().min(30000).max(900000).optional(),
       accountUsername: z.string().min(1).optional(),
       accountPassword: z.string().min(1).optional(),
       characterName: z.string().min(1).optional()

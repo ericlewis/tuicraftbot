@@ -56,6 +56,9 @@ type BotRunOptions = {
   judgeModels?: string;
   judgeMaxCalls?: number;
   judgeCooldownMs?: number;
+  chatEnabled?: boolean;
+  chatMaxMessages?: number;
+  chatCooldownMs?: number;
 };
 
 type BotRunSummary = {
@@ -79,6 +82,11 @@ type BotRunSummary = {
     models: string[];
     calls: number;
     maxCalls: number;
+  };
+  chat?: {
+    enabled: boolean;
+    messages: number;
+    maxMessages: number;
   };
 };
 
@@ -592,6 +600,11 @@ type BotRunState = {
   nextJudgeAt: number;
   lastJudgeSignature?: string;
   lastJudgeChoiceId?: string;
+  chatEnabled: boolean;
+  chatMessages: number;
+  chatMaxMessages: number;
+  chatCooldownMs: number;
+  nextChatAt: number;
 };
 
 class BotRunner {
@@ -634,6 +647,11 @@ class BotRunner {
         models: (this.run.judgeConfigs ?? []).map(formatJudgeConfig),
         calls: this.run.judgeCalls ?? 0,
         maxCalls: this.run.judgeMaxCalls ?? 0
+      },
+      chat: {
+        enabled: Boolean(this.run.chatEnabled),
+        messages: this.run.chatMessages ?? 0,
+        maxMessages: this.run.chatMaxMessages ?? 0
       }
     };
   }
@@ -657,6 +675,7 @@ class BotRunner {
     const judgeConfigs = parseJudgeConfigs(options.judgeModels ?? process.env.TUICRAFT_JUDGE_MODELS);
     const judgeEnabled =
       options.judgeEnabled ?? readBooleanEnv("TUICRAFT_JUDGE_ENABLED", false);
+    const chatEnabled = options.chatEnabled ?? readBooleanEnv("TUICRAFT_CHAT_ENABLED", true);
     const run: BotRunState = {
       id: `bot-${Date.now().toString(36)}-${suffix}`,
       mode,
@@ -697,7 +716,16 @@ class BotRunner {
         1_000,
         60_000
       ),
-      nextJudgeAt: 0
+      nextJudgeAt: 0,
+      chatEnabled,
+      chatMessages: 0,
+      chatMaxMessages: clampInteger(options.chatMaxMessages ?? readIntegerEnv("TUICRAFT_CHAT_MAX_MESSAGES", 2), 0, 10),
+      chatCooldownMs: clampInteger(
+        options.chatCooldownMs ?? readIntegerEnv("TUICRAFT_CHAT_COOLDOWN_MS", 240_000),
+        30_000,
+        900_000
+      ),
+      nextChatAt: 0
     };
 
     this.run = run;
@@ -706,7 +734,8 @@ class BotRunner {
       durationMs: run.durationMs,
       maxActions: run.maxActions,
       judgeEnabled: run.judgeEnabled,
-      judgeModels: run.judgeEnabled ? run.judgeConfigs.map(formatJudgeConfig) : undefined
+      judgeModels: run.judgeEnabled ? run.judgeConfigs.map(formatJudgeConfig) : undefined,
+      chatEnabled: run.chatEnabled
     });
     this.publishStatus();
     void this.loop(run);
@@ -1038,6 +1067,11 @@ class BotRunner {
         return { label: "accept elite quest", command: "/quest accept" };
       }
 
+      const chatAction = this.nextStrategicChatAction(run, state);
+      if (chatAction) {
+        return chatAction;
+      }
+
       if (/Dungeon Portal|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
         return this.savedPortalAction(run, state);
       }
@@ -1058,7 +1092,7 @@ class BotRunner {
       const engagedQuestBoss = Boolean(
         questBossRun && state.targetIsEliteOrBoss && state.targetLevel && state.targetLevel <= state.level
       );
-      if (questBossRun && hpRatio < (engagedQuestBoss ? 0.35 : 0.9)) {
+      if (questBossRun && hpRatio < (engagedQuestBoss ? 0.25 : 0.55)) {
         return {
           label: engagedQuestBoss ? "bail from boss at critical hp" : "bail to top off before boss",
           command: "/stuck"
@@ -1086,22 +1120,23 @@ class BotRunner {
       const hasSafeTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
-      const healThreshold = hasSafeTarget ? 0.45 : 0.68;
+      const healThreshold = hasSafeTarget ? 0.35 : 0.55;
       if (hpRatio < healThreshold) {
         return { label: "bail to heal", command: "/stuck" };
       }
 
       const shouldHuntBoss = canFightQuestBoss;
+      const bossVisible = shouldHuntBoss && state.entities.some((entity) => entity.kind === "B");
       if (shouldHuntBoss && this.hasAdjacent(state, ["B"])) {
         run.lastAttackAt = Date.now();
         return { label: "attack adjacent boss", key: "space" };
       }
-      if (this.hasAdjacent(state, ["M"])) {
+      if (!bossVisible && this.hasAdjacent(state, ["M"])) {
         run.lastAttackAt = Date.now();
         return { label: "attack adjacent enemy", key: "space" };
       }
 
-      const targetKinds = shouldHuntBoss && state.entities.some((entity) => entity.kind === "B") ? ["B"] : ["M"];
+      const targetKinds = bossVisible ? ["B"] : ["M"];
       const fightStep = this.stepToward(state, targetKinds, "adjacent");
       if (fightStep) {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
@@ -1192,6 +1227,40 @@ class BotRunner {
         this.hasAdjacent(state, ["B", "M"]) ||
         /\b(?:attack|boss|hunt|bail|heal|stuck)\b/.test(label)
     );
+  }
+
+  private nextStrategicChatAction(run: BotRunState, state: ParsedGameState): BotAction | undefined {
+    if (!run.chatEnabled || run.chatMessages >= run.chatMaxMessages || Date.now() < run.nextChatAt) {
+      return undefined;
+    }
+    if (!state.inTown && !state.inDungeon) {
+      return undefined;
+    }
+    const reply = this.nextChatReply(run, state);
+    if (!reply) {
+      return undefined;
+    }
+    run.chatMessages += 1;
+    run.nextChatAt = Date.now() + run.chatCooldownMs;
+    return { label: "reply in chat", text: `${reply}\r` };
+  }
+
+  private nextChatReply(run: BotRunState, state: ParsedGameState): string | undefined {
+    const chatText = state.text.match(/┌─ Chat Log[\s\S]*?└/)?.[0] ?? "";
+    const addressed = new RegExp(`\\b(?:${escapeRegExp(run.characterName)}|codex)\\b`, "i").test(chatText);
+    if (!addressed) {
+      return undefined;
+    }
+    if (/shadow|overlord|boss|breath|fire|elite/i.test(chatText)) {
+      return "thanks - trying Shadow Overlord now";
+    }
+    if (/hello|hi|yo|anyone|what up/i.test(chatText)) {
+      return "yo - working on Elite Slayer";
+    }
+    if (state.hp && state.hp.current < state.hp.max * 0.4) {
+      return "low hp, falling back to heal";
+    }
+    return undefined;
   }
 
   private buildJudgeCandidates(
@@ -1296,7 +1365,7 @@ class BotRunner {
     configs: JudgeConfig[],
     apiKey: string
   ): Promise<JudgeVote[]> {
-    const payload = buildJudgePayload(state, deterministicAction, candidates);
+    const payload = buildJudgePayload(state, deterministicAction, candidates, this.hasAcceptedEliteQuest(run, state));
     const results = await Promise.allSettled(
       configs.map((config) => callJudgeModel(config, payload, apiKey))
     );
@@ -1328,7 +1397,7 @@ class BotRunner {
     const armorReady = state.armorUpgrade === undefined || state.armorUpgrade >= 2;
     return (
       this.hasAcceptedEliteQuest(run, state) &&
-      hpRatio > 0.35 &&
+      hpRatio > 0.3 &&
       state.level >= Math.max(4, state.mapLevel ?? 4) &&
       weaponReady &&
       armorReady
@@ -2002,7 +2071,10 @@ function parseBotOptions(body: Record<string, unknown>): BotRunOptions {
     judgeEnabled: booleanValue(body.judgeEnabled),
     judgeModels: nonEmptyStringValue(body.judgeModels),
     judgeMaxCalls: numberValue(body.judgeMaxCalls),
-    judgeCooldownMs: numberValue(body.judgeCooldownMs)
+    judgeCooldownMs: numberValue(body.judgeCooldownMs),
+    chatEnabled: booleanValue(body.chatEnabled),
+    chatMaxMessages: numberValue(body.chatMaxMessages),
+    chatCooldownMs: numberValue(body.chatCooldownMs)
   };
 }
 
@@ -2032,13 +2104,15 @@ function formatJudgeConfig(config: JudgeConfig): string {
 function buildJudgePayload(
   state: ParsedGameState,
   deterministicAction: BotAction,
-  candidates: JudgeCandidate[]
+  candidates: JudgeCandidate[],
+  acceptedEliteQuest: boolean
 ): Record<string, unknown> {
   const hpRatio = state.hp ? state.hp.current / state.hp.max : undefined;
   return {
     objective: "Win TUICraft efficiently while avoiding death, kicks, bans, and needless server load.",
     rules: [
       "Choose exactly one candidate id.",
+      "The acceptedEliteQuest field is authoritative even if the visible dungeon side panel omits quest text.",
       "Prefer boss progress for an accepted Elite Slayer quest when level 4 and HP is above 35%.",
       "Retreat with /stuck only when HP is critical, the target is over-level, or no safe progress candidate exists.",
       "Do not invent commands or choose an action outside the candidate list."
@@ -2053,6 +2127,7 @@ function buildJudgePayload(
       gold: state.gold,
       weaponUpgrade: state.weaponUpgrade,
       armorUpgrade: state.armorUpgrade,
+      acceptedEliteQuest,
       questInProgress: state.questInProgress,
       questComplete: state.questComplete,
       targetLevel: state.targetLevel,
