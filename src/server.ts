@@ -906,12 +906,16 @@ class BotRunner {
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
       const allowedTargetLevel = state.level + 1;
       const nearestBoss = this.nearestDistance(state, ["B"]);
+      const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
       if (state.level < 3 && nearestBoss !== undefined && nearestBoss <= 3) {
         return { label: "bail from nearby boss", command: "/stuck" };
       }
+      if (!canFightQuestBoss && nearestBoss !== undefined && nearestBoss <= 1) {
+        return { label: "bail from early boss contact", command: "/stuck" };
+      }
       const targetIsRisky = Boolean(
         state.targetLevel &&
-          (state.targetLevel > allowedTargetLevel || (state.targetIsEliteOrBoss && state.level < 3))
+          (state.targetLevel > allowedTargetLevel || (state.targetIsEliteOrBoss && !canFightQuestBoss))
       );
       if (targetIsRisky) {
         return {
@@ -927,11 +931,7 @@ class BotRunner {
         return { label: "bail to heal", command: "/stuck" };
       }
 
-      const canFightQuestBoss =
-        run.questAccepted &&
-        state.level >= Math.max(3, state.mapLevel ?? 3);
-      const shouldHuntBoss =
-        canFightQuestBoss && (hpRatio > 0.88 || this.hasAdjacent(state, ["B"]));
+      const shouldHuntBoss = canFightQuestBoss;
       const adjacentEnemy = this.hasAdjacent(state, shouldHuntBoss ? ["M", "B"] : ["M"]);
       if (adjacentEnemy) {
         run.lastAttackAt = Date.now();
@@ -961,6 +961,18 @@ class BotRunner {
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
     return { label: "enter saved dungeon portal", command: "/enter 2" };
+  }
+
+  private canFightQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
+    const weaponUpgrade = state.weaponUpgrade ?? 0;
+    const armorUpgrade = state.armorUpgrade ?? 0;
+    return (
+      run.questAccepted &&
+      hpRatio > 0.9 &&
+      state.level >= Math.max(4, state.mapLevel ?? 4) &&
+      weaponUpgrade >= 2 &&
+      armorUpgrade >= 2
+    );
   }
 
   private parseGameState(screen: ScreenSnapshot): ParsedGameState {
