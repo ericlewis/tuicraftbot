@@ -159,8 +159,16 @@ function parseScreenState(text: string, bot?: BotSummary, log?: BotLogResponse):
   const gold = text.match(/\b(?:GP|Gold):\s*([0-9]+g)/)?.[1];
   const weaponMatch = text.match(/\bWpn:\s*([^\n│]+?)\s*\((\d+)\)/);
   const armorMatch = text.match(/\bArm:\s*([^\n│]+?)\s*\((\d+)\)/);
+  const armorNone = /\bArm:\s*None\b/i.test(text);
   const mapName = text.match(/\[Map:\s*([^\]]+)\]/)?.[1];
-  const quest = text.match(/\bQuest:\s*([^\n│]+)/)?.[1]?.trim();
+  const noActiveQuest = /\bNo active quest\b/i.test(text);
+  const questReadyToTurnIn = /Progress:\s*Completed|Status:\s*Ready to Turn In/i.test(text);
+  const quest =
+    noActiveQuest
+      ? "No active quest"
+      : questReadyToTurnIn
+        ? "Elite Slayer (Completed, Ready to Turn In)"
+        : text.match(/\bQuest:\s*([^\n│]+)/)?.[1]?.trim();
   const bossMatch = text.match(/Shadow Overlord\s+\(BOSS Lvl\s+(\d+)\)\s+\((\d+)hp\)/i);
   const partialState = {
     weapon: normalizeItemName(weaponMatch?.[1]) ?? DEFAULT_STATE.weapon
@@ -175,8 +183,8 @@ function parseScreenState(text: string, bot?: BotSummary, log?: BotLogResponse):
     gold: gold ?? DEFAULT_STATE.gold,
     weapon: normalizeItemName(weaponMatch?.[1]) ?? DEFAULT_STATE.weapon,
     weaponPower: weaponMatch?.[2] ?? DEFAULT_STATE.weaponPower,
-    armor: normalizeItemName(armorMatch?.[1]) ?? DEFAULT_STATE.armor,
-    armorValue: armorMatch?.[2] ?? DEFAULT_STATE.armorValue,
+    armor: armorNone ? "None" : normalizeItemName(armorMatch?.[1]) ?? DEFAULT_STATE.armor,
+    armorValue: armorNone ? "0" : armorMatch?.[2] ?? DEFAULT_STATE.armorValue,
     mapName: mapName ?? DEFAULT_STATE.mapName,
     bossName: DEFAULT_STATE.bossName,
     bossLevel: Number(bossMatch?.[1] ?? DEFAULT_STATE.bossLevel),
@@ -196,6 +204,19 @@ function buildPrompt(state: VisualState, referencePath: string | undefined): str
   const healthPhrase = isFullHealth(state.hp) ? `full health HP ${state.hp}` : `current health HP ${state.hp}`;
   const bossState = state.bossHp ? ` Current run note: ${state.bossName} has ${state.bossHp} HP remaining, but do not render that number as text.` : "";
   const exactLines = exactStateLines(state);
+  const postWin = isPostWinState(state);
+  const questPose = postWin
+    ? "victorious post-quest stance after defeating and turning in the boss quest; calm, practical, and not currently in combat"
+    : "alert stance, ready for a boss quest";
+  const questInstruction = postWin
+    ? "Quest is complete or no active quest remains; do not imply the boss is currently engaged or that Elite Slayer is still ready."
+    : "Quest is active or ready; the character should feel prepared for the boss route.";
+  const mapPlayerPlacement = postWin
+    ? "@ Codex9tqnwg near the quest board or town center after turn-in"
+    : "@ Codex9tqnwg near the route toward D";
+  const insetInstruction = postWin
+    ? "Include a small inset/portal preview labeled Fargodeep Cave (Lvl 1). The cave preview should show dark stone corridors, level 1 mobs represented as small hostile markers, and the Shadow Overlord Boss Lvl 4 silhouette as defeated or receding deeper in the cave. It should read as a completed boss threat, not an active fight."
+    : "Include a small inset/portal preview labeled Fargodeep Cave (Lvl 1). The cave preview should show dark stone corridors, level 1 mobs represented as small hostile markers, and a looming distant Shadow Overlord Boss Lvl 4 silhouette deeper in the cave. The boss should feel dangerous but not currently engaged.";
   const referenceInstruction = referencePath
     ? "Use the attached reference image as a strict style, layout, and palette anchor while updating the state details below. Keep character identity, map readability, CRT glow, and left-portrait/right-map composition highly consistent."
     : "Generate a highly consistent TUICraft tactical character/map concept illustration from the template below.";
@@ -204,7 +225,7 @@ function buildPrompt(state: VisualState, referencePath: string | undefined): str
     referenceInstruction,
     "",
     "Subject:",
-    `${state.characterName}, a Level ${state.level} ${state.className} from a terminal/TUI fantasy RPG. He has ${healthPhrase}, XP ${state.xp}, ${state.gold}, ${state.weapon} with power ${state.weaponPower}, ${state.armor} with armor ${state.armorValue}, and quest ${state.quest}. Show him as a practical low-level adventurer: worn cloth robes, simple belt, boots, short upgraded rusty sword with a faint warm glow, alert stance, ready for a boss quest. No ornate heroic armor.${bossState}`,
+    `${state.characterName}, a Level ${state.level} ${state.className} from a terminal/TUI fantasy RPG. He has ${healthPhrase}, XP ${state.xp}, ${state.gold}, ${state.weapon} with power ${state.weaponPower}, ${state.armor} with armor ${state.armorValue}, and quest ${state.quest}. ${questInstruction} Show him as a practical low-level adventurer: worn cloth robes, simple belt, boots, short upgraded rusty sword with a faint warm glow, ${questPose}. No ornate heroic armor.${bossState}`,
     "",
     "Required in-image current-state panel:",
     "As part of the generated illustration itself, include a compact terminal-style status panel in the left panel or bottom band with these exact lines. Keep it readable, green/amber terminal text, and do not paraphrase:",
@@ -214,16 +235,16 @@ function buildPrompt(state: VisualState, referencePath: string | undefined): str
     "Wide 16:9 image. Left third is the character portrait/full-body concept. Right two-thirds is a clean top-down tactical terminal-map visualization.",
     "",
     "Map:",
-    "Northshire Abbey Town, enclosed by rectangular stone walls. Use a dark CRT/terminal fantasy style with readable tile-grid geometry. Include these labeled locations exactly: S Merchant in the upper-left interior, Q Quest in the left-middle interior, I Inn in the lower-left interior, D Dungeon on the right wall, @ Codex9tqnwg near the route toward D.",
+    `Northshire Abbey Town, enclosed by rectangular stone walls. Use a dark CRT/terminal fantasy style with readable tile-grid geometry. Include these labeled locations exactly: S Merchant in the upper-left interior, Q Quest in the left-middle interior, I Inn in the lower-left interior, D Dungeon on the right wall, ${mapPlayerPlacement}.`,
     "",
     "Inset:",
-    "Include a small inset/portal preview labeled Fargodeep Cave (Lvl 1). The cave preview should show dark stone corridors, level 1 mobs represented as small hostile markers, and a looming distant Shadow Overlord Boss Lvl 4 silhouette deeper in the cave. The boss should feel dangerous but not currently engaged.",
+    insetInstruction,
     "",
     "Style:",
     "Polished pixel-art plus terminal-map aesthetic, dark parchment background, subtle CRT glow, clean tactical readability, sharp silhouettes, restrained fantasy colors, no clutter, no UI cards, no marketing layout.",
     "",
     "Text constraints:",
-    `Include the exact status block above plus these map labels, spelled exactly: ${state.characterName}, Lvl ${state.level} ${state.className}, Northshire Abbey Town, Fargodeep Cave (Lvl 1), S Merchant, Q Quest, I Inn, D Dungeon, Shadow Overlord Boss Lvl 4. Do not include unrelated text, marketing copy, or extra stats.`
+    `Include the exact status block above plus these map labels, spelled exactly: ${state.characterName}, Lvl ${state.level} ${state.className}, Northshire Abbey Town, Fargodeep Cave (Lvl 1), S Merchant, Q Quest, I Inn, D Dungeon, Shadow Overlord Boss Lvl 4. Do not include unrelated text, marketing copy, extra stats, stale quest states, or "Ready!" unless it appears in the exact status block.`
   ].join("\n");
 }
 
@@ -236,6 +257,12 @@ function exactStateLines(state: VisualState): string[] {
     `quest: ${state.quest}.`,
     `Run note: ${state.runNote}`
   ];
+}
+
+function isPostWinState(state: VisualState): boolean {
+  return /no active quest|completed.*claimed|claimed.*completed|boss defeated|shadow overlord.*defeated/i.test(
+    `${state.quest} ${state.runNote}`
+  );
 }
 
 function buildRunNote(bot: BotSummary | undefined, log: BotLogResponse | undefined, weapon: string): string {
@@ -253,6 +280,9 @@ function buildRunNote(bot: BotSummary | undefined, log: BotLogResponse | undefin
   }
   if (messages.some((message) => /buy weapon upgrade/i.test(message))) {
     parts.push(`bought ${weapon}`);
+  }
+  if (messages.some((message) => /quest complete|reward claimed|claim quest reward/i.test(message))) {
+    parts.push("quest completed and claimed");
   }
   if (messages.some((message) => /bail|retreat|stuck/i.test(message))) {
     parts.push("retreated before finishing the boss");
@@ -294,8 +324,12 @@ function applyRunNoteState(state: VisualState, note: string): void {
     state.armorValue = armor[2];
   }
 
+  if (/\bno active quest\b|\bcompleted and claimed\b|\bquest completed\b.*\bclaimed\b/i.test(note)) {
+    state.quest = "No active quest";
+  }
+
   const quest = note.match(/\bquest\s+(?:still\s+)?(.+?)(?=\s+The judge|\s+judge run|$)/i)?.[1];
-  if (quest) {
+  if (quest && !/no active quest/i.test(state.quest)) {
     state.quest = quest.trim().replace(/\.$/, "");
   }
 

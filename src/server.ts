@@ -586,6 +586,8 @@ type ParsedGameState = {
   gold?: number;
   weaponUpgrade?: number;
   armorUpgrade?: number;
+  weaponMissing: boolean;
+  armorMissing: boolean;
   sellableItemId?: number;
   targetLevel?: number;
   targetIsEliteOrBoss: boolean;
@@ -598,6 +600,7 @@ type ParsedGameState = {
   text: string;
   questInProgress: boolean;
   questComplete: boolean;
+  noActiveQuest: boolean;
   dead: boolean;
   winText: boolean;
 };
@@ -1448,7 +1451,13 @@ class BotRunner {
     configs: JudgeConfig[],
     apiKey: string
   ): Promise<JudgeVote[]> {
-    const payload = buildJudgePayload(state, deterministicAction, candidates, this.hasAcceptedEliteQuest(run, state));
+    const payload = buildJudgePayload(
+      state,
+      deterministicAction,
+      candidates,
+      this.hasAcceptedEliteQuest(run, state),
+      run.tuning
+    );
     const results = await Promise.allSettled(
       configs.map((config) => callJudgeModel(config, payload, apiKey))
     );
@@ -1476,8 +1485,8 @@ class BotRunner {
   }
 
   private canFightQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
-    const weaponReady = state.weaponUpgrade === undefined || state.weaponUpgrade >= 2;
-    const armorReady = state.armorUpgrade === undefined || state.armorUpgrade >= 2;
+    const weaponReady = !state.weaponMissing && (state.weaponUpgrade === undefined || state.weaponUpgrade >= 2);
+    const armorReady = !state.armorMissing && (state.armorUpgrade === undefined || state.armorUpgrade >= 2);
     return (
       this.hasAcceptedEliteQuest(run, state) &&
       hpRatio > run.tuning.questBossMinFightHpRatio &&
@@ -1522,6 +1531,8 @@ class BotRunner {
     const goldMatch = screen.text.match(/(?:GP|Gold):\s*(\d+)g/);
     const weaponUpgradeMatch = screen.text.match(/Wpn:[^\n│]*\+(\d+)/) ?? screen.text.match(/Weapon:\s*\+(\d+)/);
     const armorUpgradeMatch = screen.text.match(/Arm:[^\n│]*\+(\d+)/) ?? screen.text.match(/Armor\s*:\s*\+(\d+)/);
+    const weaponMissing = /\bWpn:\s*None\b/i.test(screen.text);
+    const armorMissing = /\bArm:\s*None\b/i.test(screen.text);
     const sellableItemMatch = /Sellable Items:/i.test(screen.text) ? screen.text.match(/\[(\d+)\]\s+[^\n│]+?\(\+?\d+g\)/) : undefined;
     const targetPanelText = screen.text.match(/--- Target ---([\s\S]*?)(?:--- Legend ---|Nearby:|┌─ Combat Log|$)/)?.[1] ?? "";
     const targetLevelMatch = targetPanelText.match(/Level:\s*(\d+)/);
@@ -1555,6 +1566,8 @@ class BotRunner {
       gold: goldMatch ? Number(goldMatch[1]) : undefined,
       weaponUpgrade: weaponUpgradeMatch ? Number(weaponUpgradeMatch[1]) : undefined,
       armorUpgrade: armorUpgradeMatch ? Number(armorUpgradeMatch[1]) : undefined,
+      weaponMissing,
+      armorMissing,
       sellableItemId: sellableItemMatch ? Number(sellableItemMatch[1]) : undefined,
       targetLevel: targetLevelMatch ? Number(targetLevelMatch[1]) : undefined,
       targetIsEliteOrBoss: /elite|boss|\*/i.test(targetPanelText),
@@ -1567,6 +1580,7 @@ class BotRunner {
       text: screen.text,
       questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill|Quest:\s*Elite Slayer\s*\(Ready!\)/i.test(screen.text),
       questComplete: /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest complete|Reward claimed/i.test(screen.text),
+      noActiveQuest: /\bNo active quest\b/i.test(screen.text),
       dead: hpMatch ? Number(hpMatch[1]) <= 0 : deathTextVisible && !inTown,
       winText: this.hasSystemWinText(screen)
     };
@@ -2336,18 +2350,47 @@ function buildJudgePayload(
   state: ParsedGameState,
   deterministicAction: BotAction,
   candidates: JudgeCandidate[],
-  acceptedEliteQuest: boolean
+  acceptedEliteQuest: boolean,
+  tuning: BotTuningConfig
 ): Record<string, unknown> {
   const hpRatio = state.hp ? state.hp.current / state.hp.max : undefined;
+  const bossVisible = state.entities.some((entity) => entity.kind === "B");
+  const gearReady = !state.weaponMissing && !state.armorMissing;
+  const bossEligible =
+    acceptedEliteQuest &&
+    !state.questComplete &&
+    !state.noActiveQuest &&
+    gearReady &&
+    state.level >= 4 &&
+    (hpRatio ?? 1) > tuning.questBossMinFightHpRatio;
   return {
     objective: "Win TUICraft efficiently while avoiding death, kicks, bans, and needless server load.",
     rules: [
       "Choose exactly one candidate id.",
       "The acceptedEliteQuest field is authoritative even if the visible dungeon side panel omits quest text.",
-      "Prefer boss progress for an accepted Elite Slayer quest when level 4 and HP is above 35%.",
-      "Retreat with /stuck only when HP is critical, the target is over-level, or no safe progress candidate exists.",
+      "If questComplete is true, prefer a claim/turn-in candidate over fighting, farming, shopping, or exploration.",
+      "If noActiveQuest is true, do not hunt Shadow Overlord unless a new Elite Slayer quest has been accepted.",
+      "Treat weaponMissing or armorMissing as a boss-blocking gear problem; prefer gear repair or town actions when candidates allow it.",
+      `Prefer boss progress only when bossEligible is true and HP is above ${tuning.questBossMinFightHpRatio}.`,
+      `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, the target is over-level, or no safe progress candidate exists.`,
+      "Do not choose regular mob farming over a visible boss when bossEligible is true, unless HP is below the configured boss threshold.",
       "Do not invent commands or choose an action outside the candidate list."
     ],
+    decisionContext: {
+      bossEligible,
+      gearReady,
+      bossVisible,
+      shouldClaimQuest: state.questComplete,
+      shouldStopBossHunt: state.noActiveQuest,
+      thresholds: {
+        townHealHpRatio: tuning.townHealHpRatio,
+        questBossPreEngageRetreatHpRatio: tuning.questBossPreEngageRetreatHpRatio,
+        questBossEngagedRetreatHpRatio: tuning.questBossEngagedRetreatHpRatio,
+        questBossMinFightHpRatio: tuning.questBossMinFightHpRatio,
+        safeTargetHealHpRatio: tuning.safeTargetHealHpRatio,
+        unsafeTargetHealHpRatio: tuning.unsafeTargetHealHpRatio
+      }
+    },
     state: {
       mapName: state.mapName,
       mapLevel: state.mapLevel,
@@ -2358,9 +2401,12 @@ function buildJudgePayload(
       gold: state.gold,
       weaponUpgrade: state.weaponUpgrade,
       armorUpgrade: state.armorUpgrade,
+      weaponMissing: state.weaponMissing,
+      armorMissing: state.armorMissing,
       acceptedEliteQuest,
       questInProgress: state.questInProgress,
       questComplete: state.questComplete,
+      noActiveQuest: state.noActiveQuest,
       targetLevel: state.targetLevel,
       targetIsEliteOrBoss: state.targetIsEliteOrBoss,
       targetText: state.targetText,
@@ -2399,7 +2445,7 @@ async function callJudgeModel(
       {
         role: "system",
         content:
-          "You are a tactical arbiter for a terminal RPG automation. Return only compact JSON with keys choiceId, confidence, and reason. The choiceId must be one of the supplied candidate ids."
+          "You are a tactical arbiter for a terminal RPG automation. Optimize for the objective and rules in the user JSON, using decisionContext as the canonical summary. Return only compact JSON with keys choiceId, confidence, and reason. The choiceId must be one of the supplied candidate ids."
       },
       {
         role: "user",
