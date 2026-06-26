@@ -80,6 +80,11 @@ BOT_CHARACTER_NAME=Codex... \
 bun run bot:resume
 ```
 
+`bot:resume` defaults to a 1200 ms action interval and `BOT_MAX_RECONNECTS=6`
+so server restarts, kicks, or bans do not cause aggressive reconnect loops. The
+bot also stops with an error finding when the visible terminal reports a kick,
+ban, rate limit, access denial, or terminated session.
+
 Modes:
 
 - `smoke`: creates a disposable account/character if needed, opens help,

@@ -48,6 +48,7 @@ type BotRunOptions = {
   durationMs?: number;
   intervalMs?: number;
   maxActions?: number;
+  maxReconnects?: number;
   accountUsername?: string;
   accountPassword?: string;
   characterName?: string;
@@ -62,6 +63,7 @@ type BotRunSummary = {
   durationMs?: number;
   intervalMs?: number;
   maxActions?: number;
+  maxReconnects?: number;
   actionCount: number;
   reconnectCount?: number;
   lastActionAt?: string;
@@ -529,6 +531,7 @@ type BotRunState = {
   durationMs: number;
   intervalMs: number;
   maxActions: number;
+  maxReconnects: number;
   actionCount: number;
   lastActionAt?: string;
   accountUsername: string;
@@ -540,7 +543,10 @@ type BotRunState = {
   smokeStep: number;
   stopRequested: boolean;
   reconnectCount: number;
+  nextReconnectAt: number;
   nextReconnectLogAt: number;
+  blankScreenCount: number;
+  nextBlankScreenLogAt: number;
   lastAttackAt: number;
   questAccepted: boolean;
   questComplete: boolean;
@@ -575,6 +581,7 @@ class BotRunner {
       durationMs: this.run.durationMs,
       intervalMs: this.run.intervalMs,
       maxActions: this.run.maxActions,
+      maxReconnects: this.run.maxReconnects,
       actionCount: this.run.actionCount,
       reconnectCount: this.run.reconnectCount,
       lastActionAt: this.run.lastActionAt,
@@ -609,6 +616,7 @@ class BotRunner {
       durationMs: clampInteger(options.durationMs ?? defaults.durationMs, 5_000, 600_000),
       intervalMs: clampInteger(options.intervalMs ?? defaults.intervalMs, 100, 10_000),
       maxActions: clampInteger(options.maxActions ?? defaults.maxActions, 1, 5_000),
+      maxReconnects: clampInteger(options.maxReconnects ?? defaultReconnectLimit(mode), 0, 100),
       actionCount: 0,
       accountUsername: requestedUsername || `codex${Date.now().toString(36).slice(-7)}${suffix.slice(0, 2)}`,
       accountPassword: requestedPassword || `codex-pass-${suffix}`,
@@ -619,7 +627,10 @@ class BotRunner {
       smokeStep: 0,
       stopRequested: false,
       reconnectCount: 0,
+      nextReconnectAt: 0,
       nextReconnectLogAt: 0,
+      blankScreenCount: 0,
+      nextBlankScreenLogAt: 0,
       lastAttackAt: 0,
       questAccepted: false,
       questComplete: false
@@ -686,14 +697,26 @@ class BotRunner {
     if (summary.status === "connecting") {
       return false;
     }
+    if (run.reconnectCount >= run.maxReconnects) {
+      this.failRun(run, "remote reconnect limit reached", { status: summary.status, reconnectCount: run.reconnectCount });
+      return false;
+    }
+    if (Date.now() < run.nextReconnectAt) {
+      return false;
+    }
 
     try {
       run.reconnectCount += 1;
       this.logReconnect(run, `remote session ${String(summary.status)}, reconnecting`);
       await this.bridge.start();
-      return this.bridge.getSummary().status === "connected";
+      const connected = this.bridge.getSummary().status === "connected";
+      if (!connected) {
+        run.nextReconnectAt = Date.now() + reconnectBackoffMs(run.reconnectCount);
+      }
+      return connected;
     } catch (error) {
       this.logReconnect(run, `remote reconnect failed: ${error instanceof Error ? error.message : String(error)}`);
+      run.nextReconnectAt = Date.now() + reconnectBackoffMs(run.reconnectCount);
       this.publishStatus();
       return false;
     }
@@ -702,6 +725,15 @@ class BotRunner {
   private async tick(run: BotRunState): Promise<void> {
     const screen = this.bridge.getScreen();
     this.detectFindings(run, screen.text);
+    const accessBlock = this.detectAccessBlock(screen);
+    if (accessBlock) {
+      this.failRun(run, accessBlock);
+      return;
+    }
+    if (!screen.text.trim()) {
+      this.waitOnBlankScreen(run);
+      return;
+    }
 
     const setupAction = this.chooseSetupAction(run, screen.text);
     if (setupAction) {
@@ -779,6 +811,47 @@ class BotRunner {
       return { label: "recover registration choice", text: "2\r" };
     }
     return undefined;
+  }
+
+  private detectAccessBlock(screen: ScreenSnapshot): string | undefined {
+    const nonChatText = screen.lines.map((line) => line.slice(0, 84)).join("\n");
+    const detectionText = this.isInWorld(screen.text) ? nonChatText : screen.text;
+    const normalized = normalizeWhitespace(detectionText);
+    if (!normalized) {
+      return undefined;
+    }
+    const patterns: Array<[RegExp, string]> = [
+      [/\b(?:kicked|booted)\b/i, "remote says account was kicked"],
+      [/\b(?:banned|ban(?:ned)?|blocked)\b/i, "remote says account is banned or blocked"],
+      [/\brate\s*limit|too many (?:connections|requests|login attempts)/i, "remote rate limit detected"],
+      [/\baccess denied|permission denied|account disabled|account suspended/i, "remote access denied"],
+      [/\bsession (?:ended|terminated)|disconnected by (?:server|host|admin)/i, "remote session terminated"]
+    ];
+    for (const [pattern, message] of patterns) {
+      if (pattern.test(normalized)) {
+        return message;
+      }
+    }
+    return undefined;
+  }
+
+  private waitOnBlankScreen(run: BotRunState): void {
+    run.blankScreenCount += 1;
+    const now = Date.now();
+    if (now >= run.nextBlankScreenLogAt) {
+      run.nextBlankScreenLogAt = now + 15_000;
+      this.log("warn", "blank screen; waiting without input", { blankScreenCount: run.blankScreenCount });
+      this.publishStatus();
+    }
+  }
+
+  private failRun(run: BotRunState, message: string, data?: unknown): void {
+    run.stopRequested = true;
+    run.status = "error";
+    run.stoppedAt = new Date().toISOString();
+    this.addFinding(run, message);
+    this.log("error", message, data);
+    this.publishStatus();
   }
 
   private isInWorld(text: string): boolean {
@@ -1588,6 +1661,7 @@ function parseBotOptions(body: Record<string, unknown>): BotRunOptions {
     durationMs,
     intervalMs: numberValue(body.intervalMs),
     maxActions: numberValue(body.maxActions),
+    maxReconnects: numberValue(body.maxReconnects),
     accountUsername: nonEmptyStringValue(body.accountUsername),
     accountPassword: nonEmptyStringValue(body.accountPassword),
     characterName: nonEmptyStringValue(body.characterName)
@@ -1605,6 +1679,20 @@ function defaultBotOptions(mode: BotMode): Required<Pick<BotRunOptions, "duratio
     return { durationMs: 180_000, intervalMs: 450, maxActions: 500 };
   }
   return { durationMs: 60_000, intervalMs: 650, maxActions: 60 };
+}
+
+function defaultReconnectLimit(mode: BotMode): number {
+  if (mode === "win") {
+    return 8;
+  }
+  if (mode === "stress") {
+    return 3;
+  }
+  return 5;
+}
+
+function reconnectBackoffMs(reconnectCount: number): number {
+  return Math.min(60_000, 2_000 * 2 ** Math.min(5, reconnectCount));
 }
 
 function normalizeWhitespace(value: string): string {

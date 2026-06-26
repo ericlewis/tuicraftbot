@@ -3,8 +3,9 @@ const apiBase = (Bun.env.TUICRAFT_API ?? "http://localhost:8787").replace(/\/$/,
 const payload = {
   mode: Bun.env.BOT_MODE ?? "win",
   durationSeconds: readNumberEnv("BOT_DURATION_SECONDS", 600),
-  intervalMs: readNumberEnv("BOT_INTERVAL_MS", 700),
+  intervalMs: readNumberEnv("BOT_INTERVAL_MS", 1200),
   maxActions: readNumberEnv("BOT_MAX_ACTIONS", 2500),
+  maxReconnects: readNumberEnv("BOT_MAX_RECONNECTS", 6),
   accountUsername: requiredEnv("BOT_ACCOUNT_USERNAME"),
   accountPassword: requiredEnv("BOT_ACCOUNT_PASSWORD"),
   characterName: requiredEnv("BOT_CHARACTER_NAME")
