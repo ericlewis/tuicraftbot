@@ -839,6 +839,13 @@ class BotRunner {
     if (state.inDungeon) {
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
       const targetIsRisky = Boolean(state.targetLevel && state.targetLevel > state.level);
+      if (targetIsRisky) {
+        const exitStep = this.stepToward(state, ["D"], "onto");
+        if (exitStep) {
+          return { label: "avoid over-level target", key: exitStep };
+        }
+        return { label: "avoid over-level target", key: "s" };
+      }
       if (hpRatio < (targetIsRisky ? 0.82 : 0.65)) {
         const exitStep = this.stepToward(state, ["D"], "onto");
         if (exitStep) {
