@@ -548,6 +548,10 @@ type BotAction = {
   redact?: boolean;
 };
 
+type PathfindOptions = {
+  blockedChars?: string[];
+};
+
 type JudgeConfig = {
   model: string;
   reasoningEffort?: string;
@@ -1229,7 +1233,7 @@ class BotRunner {
       }
 
       const targetKinds = bossVisible ? ["B"] : ["M"];
-      const fightStep = this.stepToward(state, targetKinds, "adjacent");
+      const fightStep = this.stepToward(state, targetKinds, "adjacent", { blockedChars: ["D"] });
       if (fightStep) {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
       }
@@ -1394,7 +1398,9 @@ class BotRunner {
     }
 
     const bossStep =
-      questBossRun && hpRatio > run.tuning.judgeBossHpRatio ? this.stepToward(state, ["B"], "adjacent") : undefined;
+      questBossRun && hpRatio > run.tuning.judgeBossHpRatio
+        ? this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D"] })
+        : undefined;
     if (bossStep) {
       this.addJudgeCandidate(
         candidates,
@@ -1403,7 +1409,8 @@ class BotRunner {
         "Move toward the boss for the accepted Elite Slayer quest."
       );
     }
-    const mobStep = hpRatio > run.tuning.judgeMobHpRatio ? this.stepToward(state, ["M"], "adjacent") : undefined;
+    const mobStep =
+      hpRatio > run.tuning.judgeMobHpRatio ? this.stepToward(state, ["M"], "adjacent", { blockedChars: ["D"] }) : undefined;
     if (mobStep) {
       this.addJudgeCandidate(
         candidates,
@@ -1683,7 +1690,12 @@ class BotRunner {
     );
   }
 
-  private stepToward(state: ParsedGameState, kinds: string[], mode: "onto" | "adjacent"): string | undefined {
+  private stepToward(
+    state: ParsedGameState,
+    kinds: string[],
+    mode: "onto" | "adjacent",
+    options: PathfindOptions = {}
+  ): string | undefined {
     if (!state.player) {
       return undefined;
     }
@@ -1691,11 +1703,16 @@ class BotRunner {
     if (targets.length === 0) {
       return undefined;
     }
-    const path = this.pathfind(state, targets, mode);
+    const path = this.pathfind(state, targets, mode, options);
     return path[0];
   }
 
-  private pathfind(state: ParsedGameState, targets: GameEntity[], mode: "onto" | "adjacent"): string[] {
+  private pathfind(
+    state: ParsedGameState,
+    targets: GameEntity[],
+    mode: "onto" | "adjacent",
+    options: PathfindOptions = {}
+  ): string[] {
     if (!state.player) {
       return [];
     }
@@ -1731,7 +1748,12 @@ class BotRunner {
         if (previous.has(nextKey)) {
           continue;
         }
-        if (!this.isWalkable(state.grid[next.y]?.[next.x], mode === "onto" && targetKeys.has(nextKey))) {
+        const char = state.grid[next.y]?.[next.x];
+        const isTarget = mode === "onto" && targetKeys.has(nextKey);
+        if (!isTarget && char && options.blockedChars?.includes(char)) {
+          continue;
+        }
+        if (!this.isWalkable(char, isTarget)) {
           continue;
         }
         previous.set(nextKey, { ...current, key });
