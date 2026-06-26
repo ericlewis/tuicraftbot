@@ -903,6 +903,9 @@ class BotRunner {
     if (/Type 'new' to create a new character/i.test(text)) {
       return { label: "create new character", text: "new\r" };
     }
+    if (/Select World Instance|Enter last played world seed/i.test(text)) {
+      return { label: "enter last played world", text: "1\r" };
+    }
     if (/Choose Character Class/i.test(text)) {
       return { label: "choose warrior", text: "1\r" };
     }
