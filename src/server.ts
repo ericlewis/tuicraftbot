@@ -1103,7 +1103,7 @@ class BotRunner {
       const engagedQuestBoss = Boolean(
         questBossRun && state.targetIsEliteOrBoss && state.targetLevel && state.targetLevel <= state.level
       );
-      if (questBossRun && hpRatio < (engagedQuestBoss ? 0.25 : 0.55)) {
+      if (questBossRun && hpRatio < (engagedQuestBoss ? 0.25 : 0.45)) {
         return {
           label: engagedQuestBoss ? "bail from boss at critical hp" : "bail to top off before boss",
           command: "/stuck"
