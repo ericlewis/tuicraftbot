@@ -1209,6 +1209,13 @@ class BotRunner {
       if (!questBossRun && state.mapLevel && state.mapLevel > allowedTargetLevel) {
         return { label: "bail from over-depth dungeon", command: "/stuck" };
       }
+      const selectedSafeRegularTarget = Boolean(
+        state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
+      );
+      if ((selectedSafeRegularTarget || this.hasAdjacent(state, ["M"])) && !state.targetIsEliteOrBoss && hpRatio > 0.75) {
+        run.lastAttackAt = Date.now();
+        return { label: "finish adjacent regular before retreat", key: "space" };
+      }
       const bossBlockingEntry = Boolean(
         !canFightQuestBoss &&
           nearestBoss !== undefined &&
@@ -1308,9 +1315,7 @@ class BotRunner {
           command: "/stuck"
         };
       }
-      const hasSafeTarget = Boolean(
-        state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
-      );
+      const hasSafeTarget = selectedSafeRegularTarget;
       const healThreshold = Math.max(
         hasSafeTarget ? run.tuning.safeTargetHealHpRatio : run.tuning.unsafeTargetHealHpRatio,
         lowLevelHealFloor
@@ -1435,6 +1440,7 @@ class BotRunner {
       label.includes("sidestep elite target") ||
       label.includes("chip elite target") ||
       label.includes("chip blocking boss") ||
+      label.includes("finish adjacent regular") ||
       label.includes("lure boss")
     ) {
       return false;
