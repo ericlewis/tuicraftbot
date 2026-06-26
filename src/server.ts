@@ -858,10 +858,6 @@ class BotRunner {
         return merchantCommand;
       }
 
-      if (/Dungeon Portal|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
-        return { label: "enter saved dungeon portal", command: state.level >= 3 ? "/enter 2" : "/enter 1" };
-      }
-
       if (run.questComplete || state.questComplete) {
         const questStep = this.stepToward(state, ["Q"], "adjacent");
         if (questStep) {
@@ -879,6 +875,10 @@ class BotRunner {
         }
         run.questAccepted = true;
         return { label: "accept elite quest", command: "/quest accept" };
+      }
+
+      if (/Dungeon Portal|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
+        return this.savedPortalAction(run, state);
       }
 
       const doorStep = this.stepToward(state, ["D"], "onto");
@@ -913,10 +913,11 @@ class BotRunner {
         return { label: "bail to heal", command: "/stuck" };
       }
 
-      const shouldHuntBoss =
+      const canFightQuestBoss =
         run.questAccepted &&
-        Boolean(state.hp && hpRatio > 0.88) &&
         state.level >= Math.max(3, state.mapLevel ?? 3);
+      const shouldHuntBoss =
+        canFightQuestBoss && (hpRatio > 0.88 || this.hasAdjacent(state, ["B"]));
       const adjacentEnemy = this.hasAdjacent(state, shouldHuntBoss ? ["M", "B"] : ["M"]);
       if (adjacentEnemy) {
         run.lastAttackAt = Date.now();
@@ -929,7 +930,7 @@ class BotRunner {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
       }
 
-      const canGoDeeper = state.level >= (state.mapLevel ?? 1) + 1 && hpRatio > 0.85;
+      const canGoDeeper = !run.questAccepted && state.level >= (state.mapLevel ?? 1) + 1 && hpRatio > 0.85;
       if (canGoDeeper) {
         const deeperStep = this.stepToward(state, ["D"], "onto");
         if (deeperStep) {
@@ -939,6 +940,13 @@ class BotRunner {
     }
 
     return this.nextExplorationAction(run, false);
+  }
+
+  private savedPortalAction(run: BotRunState, state: ParsedGameState): BotAction {
+    if (run.questAccepted || state.questInProgress || state.level < 4) {
+      return { label: "enter quest dungeon portal", command: "/enter 1" };
+    }
+    return { label: "enter saved dungeon portal", command: "/enter 2" };
   }
 
   private parseGameState(screen: ScreenSnapshot): ParsedGameState {
