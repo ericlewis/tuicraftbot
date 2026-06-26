@@ -814,9 +814,10 @@ class BotRunner {
   }
 
   private detectAccessBlock(screen: ScreenSnapshot): string | undefined {
-    const nonChatText = screen.lines.map((line) => line.slice(0, 84)).join("\n");
-    const detectionText = this.isInWorld(screen.text) ? nonChatText : screen.text;
-    const normalized = normalizeWhitespace(detectionText);
+    if (this.isInWorld(screen.text)) {
+      return undefined;
+    }
+    const normalized = normalizeWhitespace(screen.text);
     if (!normalized) {
       return undefined;
     }
