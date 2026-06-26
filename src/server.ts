@@ -1196,6 +1196,9 @@ class BotRunner {
       const nearestBoss = this.nearestDistance(state, ["B"]);
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
       const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
+      if (!questBossRun && state.mapLevel && state.mapLevel > allowedTargetLevel) {
+        return { label: "bail from over-depth dungeon", command: "/stuck" };
+      }
       const engagedQuestBoss = Boolean(
         questBossRun && state.targetIsEliteOrBoss && state.targetLevel && state.targetLevel <= state.level
       );
@@ -1573,7 +1576,7 @@ class BotRunner {
   }
 
   private savedPortalAction(run: BotRunState, state: ParsedGameState): BotAction {
-    if (run.questAccepted || state.questInProgress) {
+    if (run.questAccepted || state.questInProgress || state.level < 4) {
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
     if (state.maxDepth && state.maxDepth > 1 && state.level >= 2) {
