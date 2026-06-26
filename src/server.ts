@@ -588,6 +588,7 @@ type GameEntity = Point & {
 type ParsedGameState = {
   mapName?: string;
   mapLevel?: number;
+  maxDepth?: number;
   level: number;
   hp?: { current: number; max: number };
   xp?: { current: number; max: number };
@@ -1572,8 +1573,11 @@ class BotRunner {
   }
 
   private savedPortalAction(run: BotRunState, state: ParsedGameState): BotAction {
-    if (run.questAccepted || state.questInProgress || state.level < 4) {
+    if (run.questAccepted || state.questInProgress) {
       return { label: "enter quest dungeon portal", command: "/enter 1" };
+    }
+    if (state.maxDepth && state.maxDepth > 1 && state.level >= 2) {
+      return { label: "enter saved dungeon depth", command: "/enter 2" };
     }
     return { label: "enter saved dungeon portal", command: "/enter 2" };
   }
@@ -1615,6 +1619,7 @@ class BotRunner {
   private parseGameState(screen: ScreenSnapshot): ParsedGameState {
     const mapName = screen.text.match(/\[Map: ([^\]]+)\]/)?.[1];
     const mapLevelMatch = mapName?.match(/\(Lvl\s+(\d+)\)/);
+    const maxDepthMatch = screen.text.match(/Max Depth:\s*(\d+)/);
     const characterText = screen.lines.slice(0, 12).join("\n");
     const levelMatch =
       characterText.match(/\bLvl\s+(\d+)\s+\((Warrior|Rogue|Mage)\)/) ??
@@ -1658,6 +1663,7 @@ class BotRunner {
     return {
       mapName,
       mapLevel: mapLevelMatch ? Number(mapLevelMatch[1]) : undefined,
+      maxDepth: maxDepthMatch ? Number(maxDepthMatch[1]) : undefined,
       level,
       hp: hpMatch ? { current: Number(hpMatch[1]), max: Number(hpMatch[2]) } : undefined,
       xp: xpMatch ? { current: Number(xpMatch[1]), max: Number(xpMatch[2]) } : undefined,
