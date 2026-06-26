@@ -1219,6 +1219,16 @@ class BotRunner {
       if (this.nextMerchantCommand(state, run.tuning) && !canFightQuestBoss) {
         return { label: "bail to buy upgrade", command: "/stuck" };
       }
+      const eliteTooStrong = Boolean(
+        state.targetIsEliteOrBoss && !canFightQuestBoss && state.targetLevel && state.targetLevel > state.level
+      );
+      if (eliteTooStrong) {
+        const awayStep = this.stepAwayFrom(state, ["M", "B"], { blockedChars: ["D"] });
+        if (awayStep) {
+          return { label: "sidestep elite target", key: awayStep };
+        }
+        return { label: "bail from elite/boss target", command: "/stuck" };
+      }
       const targetOverLevel = Boolean(state.targetLevel && state.targetLevel > allowedTargetLevel);
       const eliteBossContact = Boolean(
         state.targetIsEliteOrBoss &&
@@ -1408,7 +1418,7 @@ class BotRunner {
         "Boss marker is adjacent and HP is above the critical retreat threshold."
       );
     }
-    if (this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.judgeMobHpRatio) {
+    if (!state.targetIsEliteOrBoss && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.judgeMobHpRatio) {
       this.addJudgeCandidate(
         candidates,
         "attack_adjacent_mob",
@@ -1801,6 +1811,45 @@ class BotRunner {
       current = { x: prev.x, y: prev.y };
     }
     return keys.reverse();
+  }
+
+  private stepAwayFrom(state: ParsedGameState, kinds: string[], options: PathfindOptions = {}): string | undefined {
+    if (!state.player) {
+      return undefined;
+    }
+    const threats = state.entities.filter((entity) => kinds.includes(entity.kind));
+    if (threats.length === 0) {
+      return undefined;
+    }
+
+    const currentDistance = Math.min(...threats.map((threat) => manhattan(state.player!, threat)));
+    const directions: Array<[string, number, number]> = [
+      ["w", 0, -1],
+      ["s", 0, 1],
+      ["a", -1, 0],
+      ["d", 1, 0]
+    ];
+    let best: { key: string; distance: number } | undefined;
+
+    for (const [key, dx, dy] of directions) {
+      const next = { x: state.player.x + dx, y: state.player.y + dy };
+      const char = state.grid[next.y]?.[next.x];
+      if (char && options.blockedChars?.includes(char)) {
+        continue;
+      }
+      if (!this.isWalkable(char, false)) {
+        continue;
+      }
+      const distance = Math.min(...threats.map((threat) => manhattan(next, threat)));
+      if (distance <= currentDistance) {
+        continue;
+      }
+      if (!best || distance > best.distance) {
+        best = { key, distance };
+      }
+    }
+
+    return best?.key;
   }
 
   private isWalkable(char: string | undefined, isTarget: boolean): boolean {
