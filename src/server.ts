@@ -553,6 +553,7 @@ type BotAction = {
 type PathfindOptions = {
   blockedChars?: string[];
   avoidAdjacentKinds?: string[];
+  avoidRadius?: number;
 };
 
 type JudgeConfig = {
@@ -1289,7 +1290,8 @@ class BotRunner {
       const targetKinds = bossVisible ? ["B"] : ["M"];
       const fightStep = this.stepToward(state, targetKinds, "adjacent", {
         blockedChars: ["D"],
-        avoidAdjacentKinds: bossVisible ? undefined : ["B"]
+        avoidAdjacentKinds: bossVisible ? undefined : ["B"],
+        avoidRadius: 3
       });
       if (fightStep) {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
@@ -1309,6 +1311,9 @@ class BotRunner {
       const safeProbeStep = this.safeDungeonProbeStep(state);
       if (safeProbeStep) {
         return { label: "probe dungeon safely", key: safeProbeStep };
+      }
+      if (!canFightQuestBoss && (!nearestBoss || nearestBoss > run.tuning.earlyBossAvoidDistance)) {
+        return { label: "wait for safe mob route", key: "space" };
       }
       return { label: "bail from unsafe dungeon route", command: "/stuck" };
     }
@@ -1910,7 +1915,8 @@ class BotRunner {
     }
     const visibleEnemyStep = this.greedyStepToward(state, ["M"], {
       blockedChars: ["D"],
-      avoidAdjacentKinds: ["B"]
+      avoidAdjacentKinds: ["B"],
+      avoidRadius: 3
     });
     if (visibleEnemyStep) {
       return visibleEnemyStep;
@@ -1930,7 +1936,12 @@ class BotRunner {
         continue;
       }
       if (this.isWalkable(char, false)) {
-        if (this.isAdjacentToAvoidedKind(state, { x: state.player.x + dx, y: state.player.y + dy }, { avoidAdjacentKinds: ["B"] })) {
+        if (
+          this.isAdjacentToAvoidedKind(state, { x: state.player.x + dx, y: state.player.y + dy }, {
+            avoidAdjacentKinds: ["B"],
+            avoidRadius: 3
+          })
+        ) {
           continue;
         }
         return key;
@@ -1985,7 +1996,8 @@ class BotRunner {
     if (avoidAdjacentKinds.length === 0) {
       return false;
     }
-    return state.entities.some((entity) => avoidAdjacentKinds.includes(entity.kind) && manhattan(point, entity) <= 1);
+    const avoidRadius = Math.max(1, Math.trunc(options.avoidRadius ?? 1));
+    return state.entities.some((entity) => avoidAdjacentKinds.includes(entity.kind) && manhattan(point, entity) <= avoidRadius);
   }
 
   private isWalkable(char: string | undefined, isTarget: boolean): boolean {
