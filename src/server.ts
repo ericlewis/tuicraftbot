@@ -1219,13 +1219,17 @@ class BotRunner {
       if (this.nextMerchantCommand(state, run.tuning) && !canFightQuestBoss) {
         return { label: "bail to buy upgrade", command: "/stuck" };
       }
-      const targetIsRisky = Boolean(
-        state.targetLevel &&
-          (state.targetLevel > allowedTargetLevel || (state.targetIsEliteOrBoss && !canFightQuestBoss))
+      const targetOverLevel = Boolean(state.targetLevel && state.targetLevel > allowedTargetLevel);
+      const eliteBossContact = Boolean(
+        state.targetIsEliteOrBoss &&
+          !canFightQuestBoss &&
+          nearestBoss !== undefined &&
+          nearestBoss <= run.tuning.earlyBossContactDistance
       );
+      const targetIsRisky = targetOverLevel || eliteBossContact;
       if (targetIsRisky) {
         return {
-          label: state.targetIsEliteOrBoss ? "bail from elite/boss target" : "bail from over-level target",
+          label: eliteBossContact ? "bail from elite/boss contact" : "bail from over-level target",
           command: "/stuck"
         };
       }
