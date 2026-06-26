@@ -1215,7 +1215,13 @@ class BotRunner {
           nearestBoss <= run.tuning.earlyBossAvoidDistance &&
           (state.targetIsBoss || this.hasAdjacent(state, ["B"]))
       );
-      if (bossBlockingEntry && hpRatio > 0.9 && run.bossChipMoves < 1) {
+      const overLevelEliteBossTarget = Boolean(
+        !canFightQuestBoss &&
+          state.targetIsEliteOrBoss &&
+          state.targetLevel &&
+          state.targetLevel > allowedTargetLevel
+      );
+      if ((bossBlockingEntry || overLevelEliteBossTarget) && hpRatio > 0.9 && run.bossChipMoves < 1) {
         run.bossChipMoves += 1;
         run.lastAttackAt = Date.now();
         return { label: "chip blocking boss", key: "space" };
