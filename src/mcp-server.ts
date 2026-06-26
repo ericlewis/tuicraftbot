@@ -152,7 +152,7 @@ server.registerTool(
       maxReconnects: z.number().int().min(0).max(100).default(4),
       judgeEnabled: z.boolean().optional().describe("Defaults to true for win-mode runs."),
       judgeModels: z.string().optional(),
-      judgeMaxCalls: z.number().int().min(0).max(500).optional(),
+      judgeMaxCalls: z.number().int().min(0).max(500).optional().describe("Defaults to 96 total model calls, or 32 three-model ensemble decisions."),
       judgeCooldownMs: z.number().int().min(1000).max(60000).optional(),
       chatEnabled: z.boolean().default(true),
       chatMaxMessages: z.number().int().min(0).max(10).optional(),

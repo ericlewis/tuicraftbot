@@ -147,6 +147,7 @@ const KEY_BYTES: Record<string, string> = {
 };
 
 const DEFAULT_JUDGE_MODELS = "gpt-5.5:medium,gpt-5.4-mini:low,gpt-5.4-nano:low";
+const DEFAULT_JUDGE_MAX_CALLS = 96;
 
 class GameBridge {
   private conn?: Client;
@@ -706,7 +707,7 @@ class BotRunner {
       judgeEnabled,
       judgeConfigs,
       judgeMaxCalls: clampInteger(
-        options.judgeMaxCalls ?? readIntegerEnv("TUICRAFT_JUDGE_MAX_CALLS", 18),
+        options.judgeMaxCalls ?? readIntegerEnv("TUICRAFT_JUDGE_MAX_CALLS", DEFAULT_JUDGE_MAX_CALLS),
         0,
         500
       ),

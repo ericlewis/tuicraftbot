@@ -105,9 +105,10 @@ TUICRAFT_JUDGE_MODELS='gpt-5.5:medium,gpt-5.4-mini:low,gpt-5.4-nano:low' \
 bun run bot:resume
 ```
 
-Use `TUICRAFT_JUDGE_MAX_CALLS`, `TUICRAFT_JUDGE_COOLDOWN_MS`, and
-`TUICRAFT_JUDGE_TIMEOUT_MS` to bound cost and latency. Use
-`TUICRAFT_JUDGE_ENABLED=false` to disable ensemble judging.
+The default budget is 96 total model calls, which is 32 tactical decisions with
+the default three-model ensemble. Use `TUICRAFT_JUDGE_MAX_CALLS`,
+`TUICRAFT_JUDGE_COOLDOWN_MS`, and `TUICRAFT_JUDGE_TIMEOUT_MS` to bound cost and
+latency. Use `TUICRAFT_JUDGE_ENABLED=false` to disable ensemble judging.
 
 Chat participation is enabled by default, but gated: the bot only replies when
 the visible chat appears to address `Codex...`/`codex` or when a reply is
