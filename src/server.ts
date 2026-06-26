@@ -552,6 +552,7 @@ type BotAction = {
 
 type PathfindOptions = {
   blockedChars?: string[];
+  avoidAdjacentKinds?: string[];
 };
 
 type JudgeConfig = {
@@ -1282,7 +1283,10 @@ class BotRunner {
       }
 
       const targetKinds = bossVisible ? ["B"] : ["M"];
-      const fightStep = this.stepToward(state, targetKinds, "adjacent", { blockedChars: ["D"] });
+      const fightStep = this.stepToward(state, targetKinds, "adjacent", {
+        blockedChars: ["D"],
+        avoidAdjacentKinds: bossVisible ? undefined : ["B"]
+      });
       if (fightStep) {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
       }
@@ -1302,6 +1306,7 @@ class BotRunner {
       if (safeProbeStep) {
         return { label: "probe dungeon safely", key: safeProbeStep };
       }
+      return { label: "bail from unsafe dungeon route", command: "/stuck" };
     }
 
     return this.nextWinProbeAction(run);
@@ -1825,6 +1830,9 @@ class BotRunner {
         if (!this.isWalkable(char, isTarget)) {
           continue;
         }
+        if (!isTarget && this.isAdjacentToAvoidedKind(state, next, options)) {
+          continue;
+        }
         previous.set(nextKey, { ...current, key });
         queue.push(next);
       }
@@ -1891,7 +1899,10 @@ class BotRunner {
     if (awayFromDoor) {
       return awayFromDoor;
     }
-    const visibleEnemyStep = this.greedyStepToward(state, ["M", "B"], { blockedChars: ["D"] });
+    const visibleEnemyStep = this.greedyStepToward(state, ["M"], {
+      blockedChars: ["D"],
+      avoidAdjacentKinds: ["B"]
+    });
     if (visibleEnemyStep) {
       return visibleEnemyStep;
     }
@@ -1910,6 +1921,9 @@ class BotRunner {
         continue;
       }
       if (this.isWalkable(char, false)) {
+        if (this.isAdjacentToAvoidedKind(state, { x: state.player.x + dx, y: state.player.y + dy }, { avoidAdjacentKinds: ["B"] })) {
+          continue;
+        }
         return key;
       }
     }
@@ -1942,6 +1956,9 @@ class BotRunner {
       if (!this.isWalkable(char, false)) {
         continue;
       }
+      if (this.isAdjacentToAvoidedKind(state, next, options)) {
+        continue;
+      }
       const distance = Math.min(...targets.map((target) => manhattan(next, target)));
       if (distance >= currentDistance) {
         continue;
@@ -1952,6 +1969,14 @@ class BotRunner {
     }
 
     return best?.key;
+  }
+
+  private isAdjacentToAvoidedKind(state: ParsedGameState, point: Point, options: PathfindOptions): boolean {
+    const avoidAdjacentKinds = options.avoidAdjacentKinds ?? [];
+    if (avoidAdjacentKinds.length === 0) {
+      return false;
+    }
+    return state.entities.some((entity) => avoidAdjacentKinds.includes(entity.kind) && manhattan(point, entity) <= 1);
   }
 
   private isWalkable(char: string | undefined, isTarget: boolean): boolean {
