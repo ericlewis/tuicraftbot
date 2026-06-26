@@ -648,6 +648,7 @@ type BotRunState = {
   questAccepted: boolean;
   questComplete: boolean;
   starterArmorChecked: boolean;
+  bossLureMoves: number;
   lastStateSignature?: string;
   judgeEnabled: boolean;
   judgeConfigs: JudgeConfig[];
@@ -769,6 +770,7 @@ class BotRunner {
       questAccepted: false,
       questComplete: false,
       starterArmorChecked: false,
+      bossLureMoves: 0,
       judgeEnabled,
       judgeConfigs,
       judgeMaxCalls: clampInteger(
@@ -1129,6 +1131,7 @@ class BotRunner {
     }
 
     if (state.inTown) {
+      run.bossLureMoves = 0;
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
       const readyForEliteQuest = state.level >= 3;
       if (state.hp && hpRatio < run.tuning.townHealHpRatio) {
@@ -1223,9 +1226,10 @@ class BotRunner {
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossAvoidDistance
       ) {
-        if (hpRatio > 0.85) {
+        if (hpRatio > 0.85 && run.bossLureMoves < 1) {
           const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
           if (awayStep) {
+            run.bossLureMoves += 1;
             return { label: "lure boss away from entrance", key: awayStep };
           }
         }
@@ -1236,9 +1240,10 @@ class BotRunner {
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossContactDistance
       ) {
-        if (hpRatio > 0.85) {
+        if (hpRatio > 0.85 && run.bossLureMoves < 1) {
           const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
           if (awayStep) {
+            run.bossLureMoves += 1;
             return { label: "lure boss away from entrance", key: awayStep };
           }
         }
