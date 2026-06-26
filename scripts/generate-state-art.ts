@@ -179,7 +179,7 @@ function buildPrompt(state: VisualState, referencePath: string | undefined): str
     "Polished pixel-art plus terminal-map aesthetic, dark parchment background, subtle CRT glow, clean tactical readability, sharp silhouettes, restrained fantasy colors, no clutter, no UI cards, no marketing layout.",
     "",
     "Text constraints:",
-    "Only include these short readable labels, spelled exactly: Codex9tqnwg, Lvl 3 Warrior, Northshire Abbey Town, Fargodeep Cave (Lvl 1), S Merchant, Q Quest, I Inn, D Dungeon, Shadow Overlord Boss Lvl 4. Do not include any other text, stats, legends, paragraphs, UI copy, random letters, or extra labels."
+    `Only include these short readable labels, spelled exactly: ${state.characterName}, Lvl ${state.level} ${state.className}, Northshire Abbey Town, Fargodeep Cave (Lvl 1), S Merchant, Q Quest, I Inn, D Dungeon, Shadow Overlord Boss Lvl 4. Do not include any other text, stats, legends, paragraphs, UI copy, random letters, or extra labels.`
   ].join("\n");
 }
 

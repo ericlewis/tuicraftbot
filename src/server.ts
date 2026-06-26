@@ -981,8 +981,15 @@ class BotRunner {
       const allowedTargetLevel = state.level + 1;
       const nearestBoss = this.nearestDistance(state, ["B"]);
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
-      if (this.hasAcceptedEliteQuest(run, state) && state.level >= 4 && hpRatio < 0.95) {
-        return { label: "bail to top off before boss", command: "/stuck" };
+      const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
+      const engagedQuestBoss = Boolean(
+        questBossRun && state.targetIsEliteOrBoss && state.targetLevel && state.targetLevel <= state.level
+      );
+      if (questBossRun && hpRatio < (engagedQuestBoss ? 0.35 : 0.9)) {
+        return {
+          label: engagedQuestBoss ? "bail from boss at critical hp" : "bail to top off before boss",
+          command: "/stuck"
+        };
       }
       if (state.level < 3 && nearestBoss !== undefined && nearestBoss <= 3) {
         return { label: "bail from nearby boss", command: "/stuck" };
@@ -1012,13 +1019,16 @@ class BotRunner {
       }
 
       const shouldHuntBoss = canFightQuestBoss;
-      const adjacentEnemy = this.hasAdjacent(state, shouldHuntBoss ? ["M", "B"] : ["M"]);
-      if (adjacentEnemy) {
+      if (shouldHuntBoss && this.hasAdjacent(state, ["B"])) {
+        run.lastAttackAt = Date.now();
+        return { label: "attack adjacent boss", key: "space" };
+      }
+      if (this.hasAdjacent(state, ["M"])) {
         run.lastAttackAt = Date.now();
         return { label: "attack adjacent enemy", key: "space" };
       }
 
-      const targetKinds = shouldHuntBoss ? ["B", "M"] : ["M"];
+      const targetKinds = shouldHuntBoss && state.entities.some((entity) => entity.kind === "B") ? ["B"] : ["M"];
       const fightStep = this.stepToward(state, targetKinds, "adjacent");
       if (fightStep) {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
@@ -1048,7 +1058,7 @@ class BotRunner {
     const armorUpgrade = state.armorUpgrade ?? 0;
     return (
       this.hasAcceptedEliteQuest(run, state) &&
-      hpRatio > 0.9 &&
+      hpRatio > 0.35 &&
       state.level >= Math.max(4, state.mapLevel ?? 4) &&
       weaponUpgrade >= 2 &&
       armorUpgrade >= 2

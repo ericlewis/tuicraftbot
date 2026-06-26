@@ -42,6 +42,58 @@ server.registerResource(
   async () => jsonResource("tuicraft://session", await apiGet(apiBase(), "/api/session"))
 );
 
+server.registerResource(
+  "tuicraft-log",
+  "tuicraft://bot/log",
+  {
+    title: "TUICraft Bot Log",
+    description: "Recent bot automation log entries.",
+    mimeType: "application/json"
+  },
+  async () => jsonResource("tuicraft://bot/log", await apiGet(apiBase(), "/api/bot/log?limit=100"))
+);
+
+server.registerResource(
+  "tuicraft-raw",
+  "tuicraft://raw",
+  {
+    title: "TUICraft Raw Telemetry",
+    description: "Recent raw SSH input/output telemetry chunks with redacted secrets.",
+    mimeType: "application/json"
+  },
+  async () => jsonResource("tuicraft://raw", await apiGet(apiBase(), "/api/raw?limit=50"))
+);
+
+server.registerTool(
+  "tuicraft_get_session",
+  {
+    title: "Get TUICraft session",
+    description: "Read SSH bridge status, counters, and terminal dimensions.",
+    inputSchema: {}
+  },
+  async () => textResult(await apiGet(apiBase(), "/api/session"))
+);
+
+server.registerTool(
+  "tuicraft_start_session",
+  {
+    title: "Start TUICraft SSH session",
+    description: "Start the local SSH bridge to the game server.",
+    inputSchema: {}
+  },
+  async () => textResult(await apiPost(apiBase(), "/api/session/start", {}))
+);
+
+server.registerTool(
+  "tuicraft_stop_session",
+  {
+    title: "Stop TUICraft SSH session",
+    description: "Stop the local SSH bridge to the game server.",
+    inputSchema: {}
+  },
+  async () => textResult(await apiPost(apiBase(), "/api/session/stop", {}))
+);
+
 server.registerTool(
   "tuicraft_get_screen",
   {
@@ -73,6 +125,18 @@ server.registerTool(
     }
   },
   async ({ logLimit }) => textResult(await getBotSnapshot(apiBase(), logLimit))
+);
+
+server.registerTool(
+  "tuicraft_get_raw",
+  {
+    title: "Get TUICraft raw telemetry",
+    description: "Read recent redacted raw SSH input/output chunks.",
+    inputSchema: {
+      limit: z.number().int().min(1).max(500).default(50)
+    }
+  },
+  async ({ limit }) => textResult(await apiGet(apiBase(), `/api/raw?limit=${limit}`))
 );
 
 server.registerTool(
@@ -127,6 +191,36 @@ server.registerTool(
 );
 
 server.registerTool(
+  "tuicraft_enter_command",
+  {
+    title: "Enter TUICraft command",
+    description: "Submit a slash command or chat command line to the game.",
+    inputSchema: {
+      command: z.string().min(1)
+    }
+  },
+  async ({ command }) => {
+    const trimmed = command.trim();
+    return textResult(await apiPost(apiBase(), "/api/input", { text: `${trimmed}\r` }));
+  }
+);
+
+server.registerTool(
+  "tuicraft_resize_terminal",
+  {
+    title: "Resize TUICraft terminal",
+    description: "Resize the local terminal/PTY and browser terminal dimensions.",
+    inputSchema: {
+      cols: z.number().int().min(40).max(240).optional(),
+      rows: z.number().int().min(12).max(80).optional(),
+      width: z.number().int().min(320).max(3840).optional(),
+      height: z.number().int().min(240).max(2160).optional()
+    }
+  },
+  async (params) => textResult(await apiPost(apiBase(), "/api/resize", params))
+);
+
+server.registerTool(
   "tuicraft_restart_session",
   {
     title: "Restart TUICraft SSH session",
@@ -152,6 +246,31 @@ server.registerTool(
     }
   },
   async (params) => textResult(await runArtGenerator(params))
+);
+
+server.registerTool(
+  "tuicraft_snapshot",
+  {
+    title: "Capture TUICraft operational snapshot",
+    description:
+      "Capture session, screen summary, bot state, recent logs, optional raw telemetry, and optional state-art output.",
+    inputSchema: {
+      includeText: z.boolean().default(false),
+      includeLines: z.boolean().default(false),
+      includeRaw: z.boolean().default(false),
+      logLimit: z.number().int().min(1).max(500).default(80),
+      rawLimit: z.number().int().min(1).max(500).default(50),
+      generateArt: z.boolean().default(false),
+      promptOnly: z.boolean().default(true),
+      referencePath: z.string().optional(),
+      outDir: z.string().default("output"),
+      label: z.string().optional(),
+      model: z.string().default("gpt-image-2"),
+      size: z.string().default("2048x1152"),
+      quality: z.string().default("medium")
+    }
+  },
+  async (params) => textResult(await captureSnapshot(params))
 );
 
 await server.connect(new StdioServerTransport());
@@ -194,6 +313,56 @@ async function getBotSnapshot(base: string, logLimit: number): Promise<unknown> 
     apiGet(base, `/api/bot/log?limit=${logLimit}`)
   ]);
   return { bot, log };
+}
+
+async function captureSnapshot(params: {
+  includeText: boolean;
+  includeLines: boolean;
+  includeRaw: boolean;
+  logLimit: number;
+  rawLimit: number;
+  generateArt: boolean;
+  promptOnly: boolean;
+  referencePath?: string;
+  outDir: string;
+  label?: string;
+  model: string;
+  size: string;
+  quality: string;
+}): Promise<unknown> {
+  const base = apiBase();
+  const [session, screen, botSnapshot, raw] = await Promise.all([
+    apiGet(base, "/api/session"),
+    apiGet<ScreenSnapshot>(base, "/api/screen"),
+    getBotSnapshot(base, params.logLimit),
+    params.includeRaw ? apiGet(base, `/api/raw?limit=${params.rawLimit}`) : Promise.resolve(undefined)
+  ]);
+  const text = screen.text ?? screen.lines.join("\n");
+  const result: Record<string, unknown> = {
+    timestamp: new Date().toISOString(),
+    session,
+    screen: {
+      summary: parseScreenSummary(text),
+      text: params.includeText ? text : undefined,
+      lines: params.includeLines ? screen.lines : undefined
+    },
+    ...asRecord(botSnapshot),
+    raw
+  };
+
+  if (params.generateArt) {
+    result.stateArt = await runArtGenerator({
+      promptOnly: params.promptOnly,
+      template: false,
+      referencePath: params.referencePath,
+      outPath: buildStateArtPath(params.outDir, params.label),
+      model: params.model,
+      size: params.size,
+      quality: params.quality
+    });
+  }
+
+  return result;
 }
 
 function withEnvBotAccount<T extends Record<string, unknown>>(params: T): T {
@@ -249,6 +418,16 @@ function parseMaybeJson(text: string): unknown {
   } catch {
     return trimmed;
   }
+}
+
+function buildStateArtPath(outDir: string, label: string | undefined): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const suffix = label ? `-${label.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-|-$/g, "")}` : "";
+  return `${outDir.replace(/\/$/, "")}/tuicraft-state-${timestamp}${suffix}.png`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function textResult(value: unknown) {

@@ -128,6 +128,19 @@ with `--model`, `--size`, and `--quality`, or the `TUICRAFT_ART_MODEL`,
 `--template` to ignore the live screen and regenerate from the base
 Codex9tqnwg/Northshire/Fargodeep template.
 
+To generate ongoing state-art captures through the MCP control server every
+five minutes while a run is active:
+
+```sh
+bun run art:watch -- \
+  --interval-seconds 300 \
+  --duration-seconds 1800 \
+  --max-captures 6 \
+  --reference "/Users/ericlewis/Downloads/Generated image 1.png"
+```
+
+Use `--prompt-only` to write prompts without calling the image API.
+
 ## MCP server
 
 Run a local stdio MCP server that wraps the instrumentation API, bot controls,
@@ -144,13 +157,21 @@ the `tuicraft_start_bot` tool without committing credentials.
 
 Exposed tools:
 
+- `tuicraft_get_session`: SSH bridge status and counters
+- `tuicraft_start_session`: start the SSH bridge
+- `tuicraft_stop_session`: stop the SSH bridge
 - `tuicraft_get_screen`: current screen plus parsed state summary
 - `tuicraft_get_bot`: bot status and recent logs
+- `tuicraft_get_raw`: recent redacted SSH telemetry chunks
 - `tuicraft_start_bot`: bounded bot run with reconnect caps
 - `tuicraft_stop_bot`: stop current bot run
 - `tuicraft_send_input`: manual key/text input
+- `tuicraft_enter_command`: submit a slash/chat command line
+- `tuicraft_resize_terminal`: resize the local terminal/PTY
 - `tuicraft_restart_session`: reconnect SSH bridge
 - `tuicraft_state_art`: generate the state-art prompt or image output
+- `tuicraft_snapshot`: capture session, screen summary, bot/logs, optional raw
+  telemetry, and optional state-art output
 
 Resources are available at `tuicraft://screen`, `tuicraft://bot`, and
-`tuicraft://session`.
+`tuicraft://session`, `tuicraft://bot/log`, and `tuicraft://raw`.
