@@ -1412,7 +1412,7 @@ class BotRunner {
         state.level >= (state.mapLevel ?? 1) + run.tuning.goDeeperLevelMargin &&
         hpRatio > run.tuning.goDeeperHpRatio;
       if (canGoDeeper) {
-        const deeperStep = this.stepToward(state, ["D"], "onto", {
+        const deeperStep = this.stepTowardDeeperDungeonDoor(state, {
           avoidAdjacentKinds: ["B"],
           avoidRadius: 3
         });
@@ -2228,6 +2228,19 @@ class BotRunner {
     }
     const targets = state.entities.filter((entity) => {
       return entity.kind === "M" && manhattan(state.player!, entity) > minDistance;
+    });
+    if (targets.length === 0) {
+      return undefined;
+    }
+    return this.pathfind(state, targets, "onto", options)[0];
+  }
+
+  private stepTowardDeeperDungeonDoor(state: ParsedGameState, options: PathfindOptions = {}): string | undefined {
+    if (!state.player) {
+      return undefined;
+    }
+    const targets = state.entities.filter((entity) => {
+      return entity.kind === "D" && entity.x > state.player!.x && manhattan(state.player!, entity) > 4;
     });
     if (targets.length === 0) {
       return undefined;
