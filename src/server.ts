@@ -1311,6 +1311,22 @@ class BotRunner {
           run.lastKnownMana = { current: 0, max: run.lastKnownMana.max };
         }
       }
+      if (state.level <= 1 && selectedSafeRegularTarget && /Orc Grunt/i.test(state.targetText ?? "")) {
+        const alternateMobStep = this.stepTowardDistantMob(state, 2, {
+          blockedChars: ["D"],
+          avoidAdjacentKinds: ["B"],
+          avoidRadius: 3
+        });
+        if (alternateMobStep) {
+          return { label: "seek non-orc starter mob", key: alternateMobStep };
+        }
+        if (this.hasAdjacent(state, ["M"])) {
+          const awayStep = this.stepAwayFrom(state, ["M"], { blockedChars: ["D"] });
+          if (awayStep) {
+            return { label: "disengage orc starter mob", key: awayStep };
+          }
+        }
+      }
       const knownMana = state.mana?.current ?? run.lastKnownMana?.current;
       const hasSpellMana = knownMana === undefined ? !run.mageNeedsManaRest : knownMana >= 10;
       const canCastFireball = Boolean(
@@ -1325,21 +1341,6 @@ class BotRunner {
           }
         }
         return { label: "cast fireball", text: "f" };
-      }
-      if (
-        state.level <= 1 &&
-        selectedSafeRegularTarget &&
-        !this.hasAdjacent(state, ["M"]) &&
-        /Orc Grunt/i.test(state.targetText ?? "")
-      ) {
-        const alternateMobStep = this.stepTowardDistantMob(state, 2, {
-          blockedChars: ["D"],
-          avoidAdjacentKinds: ["B"],
-          avoidRadius: 3
-        });
-        if (alternateMobStep) {
-          return { label: "seek non-orc starter mob", key: alternateMobStep };
-        }
       }
       if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.safeTargetHealHpRatio) {
         const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
