@@ -174,7 +174,8 @@ server.registerTool(
           earlyBossContactDistance: z.number().int().min(0).max(100).optional(),
           maxWeaponUpgrade: z.number().int().min(0).max(20).optional(),
           maxArmorUpgrade: z.number().int().min(0).max(20).optional(),
-          upgradeCostBaseGold: z.number().int().min(1).max(10000).optional()
+          upgradeCostBaseGold: z.number().int().min(1).max(10000).optional(),
+          attackCooldownMs: z.number().int().min(500).max(10000).optional()
         })
         .optional(),
       accountUsername: z.string().min(1).optional(),

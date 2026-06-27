@@ -80,6 +80,7 @@ type BotTuningConfig = {
   maxWeaponUpgrade: number;
   maxArmorUpgrade: number;
   upgradeCostBaseGold: number;
+  attackCooldownMs: number;
 };
 
 type BotRunSummary = {
@@ -188,7 +189,8 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   earlyBossContactDistance: 1,
   maxWeaponUpgrade: 4,
   maxArmorUpgrade: 4,
-  upgradeCostBaseGold: 25
+  upgradeCostBaseGold: 25,
+  attackCooldownMs: 3_000
 };
 
 class GameBridge {
@@ -548,6 +550,7 @@ type BotAction = {
   text?: string;
   command?: string;
   redact?: boolean;
+  wait?: boolean;
 };
 
 type PathfindOptions = {
@@ -1219,6 +1222,13 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
+      if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.safeTargetHealHpRatio) {
+        if (Date.now() - run.lastAttackAt < run.tuning.attackCooldownMs) {
+          return { label: "wait for attack cooldown", wait: true };
+        }
+        run.lastAttackAt = Date.now();
+        return { label: "attack selected regular", key: "space" };
+      }
       const bossBlockingEntry = Boolean(
         !canFightQuestBoss &&
           nearestBoss !== undefined &&
@@ -2065,7 +2075,9 @@ class BotRunner {
 
   private async sendAction(run: BotRunState, action: BotAction): Promise<void> {
     try {
-      if (action.command) {
+      if (action.wait) {
+        // Deliberately spend scheduler time without sending a game input.
+      } else if (action.command) {
         await this.sendCommand(run, action.command);
       } else {
         if (action.key && ["w", "a", "s", "d", "space", "enter"].includes(action.key)) {
@@ -2538,6 +2550,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "maxWeaponUpgrade");
   setTuningNumber(tuning, source, "maxArmorUpgrade");
   setTuningNumber(tuning, source, "upgradeCostBaseGold");
+  setTuningNumber(tuning, source, "attackCooldownMs");
   return Object.keys(tuning).length > 0 ? tuning : undefined;
 }
 
@@ -2617,7 +2630,8 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
     ),
     maxWeaponUpgrade: tuneInteger(overrides, "maxWeaponUpgrade", "TUICRAFT_MAX_WEAPON_UPGRADE", 0, 20),
     maxArmorUpgrade: tuneInteger(overrides, "maxArmorUpgrade", "TUICRAFT_MAX_ARMOR_UPGRADE", 0, 20),
-    upgradeCostBaseGold: tuneInteger(overrides, "upgradeCostBaseGold", "TUICRAFT_UPGRADE_COST_BASE_GOLD", 1, 10_000)
+    upgradeCostBaseGold: tuneInteger(overrides, "upgradeCostBaseGold", "TUICRAFT_UPGRADE_COST_BASE_GOLD", 1, 10_000),
+    attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 500, 10_000)
   };
 }
 
