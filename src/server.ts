@@ -1219,7 +1219,11 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
-      if ((selectedSafeRegularTarget || this.hasAdjacent(state, ["M"])) && !state.targetIsEliteOrBoss && hpRatio > 0.75) {
+      if (
+        (selectedSafeRegularTarget || this.hasAdjacent(state, ["M"])) &&
+        !state.targetIsEliteOrBoss &&
+        hpRatio > run.tuning.safeTargetHealHpRatio
+      ) {
         run.lastAttackAt = Date.now();
         return { label: "finish adjacent regular before retreat", key: "space" };
       }
@@ -1323,10 +1327,9 @@ class BotRunner {
         };
       }
       const hasSafeTarget = selectedSafeRegularTarget;
-      const healThreshold = Math.max(
-        hasSafeTarget ? run.tuning.safeTargetHealHpRatio : run.tuning.unsafeTargetHealHpRatio,
-        lowLevelHealFloor
-      );
+      const healThreshold = hasSafeTarget
+        ? run.tuning.safeTargetHealHpRatio
+        : Math.max(run.tuning.unsafeTargetHealHpRatio, lowLevelHealFloor);
       if (hpRatio < healThreshold) {
         return { label: "bail to heal", command: "/stuck" };
       }
