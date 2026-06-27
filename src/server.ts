@@ -1410,11 +1410,15 @@ class BotRunner {
       if (
         lowLevelFarming &&
         canCastFireball &&
-        spellReady &&
         hpRatio > run.tuning.lowLevelSafeTargetHealHpRatio &&
+        state.targetHp &&
         nearestBoss !== undefined &&
-        nearestBoss <= run.tuning.earlyBossAvoidDistance
+        nearestBoss <= run.tuning.earlyBossAvoidDistance &&
+        (spellReady || state.targetHp.current <= Math.max(16, Math.ceil(state.targetHp.max * 0.45)))
       ) {
+        if (!spellReady) {
+          return { label: "wait for spell cooldown", wait: true };
+        }
         return { label: "cast fireball", text: "f" };
       }
       if (
