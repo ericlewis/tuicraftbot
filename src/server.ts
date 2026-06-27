@@ -1450,6 +1450,9 @@ class BotRunner {
     if (!state.inDungeon) {
       return false;
     }
+    if (action.wait || action.label === "attack selected regular") {
+      return false;
+    }
     const label = action.label.toLowerCase();
     if (
       label.includes("sidestep elite target") ||
