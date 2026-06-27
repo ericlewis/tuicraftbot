@@ -206,8 +206,8 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   maxArmorUpgrade: 4,
   upgradeCostBaseGold: 100,
   attackCooldownMs: 3_000,
-  spellCooldownMs: 1_100,
-  mageMeleeFinishHp: 16,
+  spellCooldownMs: 1_500,
+  mageMeleeFinishHp: 0,
   mageManaRestMs: 15_000,
   maxAdjacentRegularMobs: 1,
   targetHpResetBailCount: 1,
@@ -1676,6 +1676,7 @@ class BotRunner {
       action.wait ||
       action.label === "attack selected regular" ||
       action.label === "cast fireball" ||
+      action.label === "finish low-hp target" ||
       action.label === "bail from over-depth dungeon" ||
       action.label === "bail from multi-mob low-level fight" ||
       action.label === "bail to restore mage mana" ||
