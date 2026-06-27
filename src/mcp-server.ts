@@ -176,7 +176,7 @@ server.registerTool(
           maxWeaponUpgrade: z.number().int().min(0).max(20).optional(),
           maxArmorUpgrade: z.number().int().min(0).max(20).optional(),
           upgradeCostBaseGold: z.number().int().min(1).max(10000).optional(),
-          attackCooldownMs: z.number().int().min(500).max(10000).optional(),
+          attackCooldownMs: z.number().int().min(200).max(10000).optional(),
           mageManaRestMs: z.number().int().min(0).max(120000).optional(),
           maxAdjacentRegularMobs: z.number().int().min(1).max(8).optional(),
           targetHpResetBailCount: z.number().int().min(1).max(10).optional(),

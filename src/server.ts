@@ -2971,7 +2971,7 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
     maxWeaponUpgrade: tuneInteger(overrides, "maxWeaponUpgrade", "TUICRAFT_MAX_WEAPON_UPGRADE", 0, 20),
     maxArmorUpgrade: tuneInteger(overrides, "maxArmorUpgrade", "TUICRAFT_MAX_ARMOR_UPGRADE", 0, 20),
     upgradeCostBaseGold: tuneInteger(overrides, "upgradeCostBaseGold", "TUICRAFT_UPGRADE_COST_BASE_GOLD", 1, 10_000),
-    attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 500, 10_000),
+    attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 200, 10_000),
     mageManaRestMs: tuneInteger(overrides, "mageManaRestMs", "TUICRAFT_MAGE_MANA_REST_MS", 0, 120_000),
     maxAdjacentRegularMobs: tuneInteger(
       overrides,
