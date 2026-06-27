@@ -203,7 +203,6 @@ function normalizeItemName(value: string | undefined): string | undefined {
 function buildPrompt(state: VisualState, referencePath: string | undefined): string {
   const healthPhrase = isFullHealth(state.hp) ? `full health HP ${state.hp}` : `current health HP ${state.hp}`;
   const bossState = state.bossHp ? ` Current run note: ${state.bossName} has ${state.bossHp} HP remaining, but do not render that number as text.` : "";
-  const exactLines = exactStateLines(state);
   const postWin = isPostWinState(state);
   const questPose = postWin
     ? "victorious post-quest stance after defeating and turning in the boss quest; calm, practical, and not currently in combat"
@@ -212,8 +211,8 @@ function buildPrompt(state: VisualState, referencePath: string | undefined): str
     ? "Quest is complete or no active quest remains; do not imply the boss is currently engaged or that Elite Slayer is still ready."
     : "Quest is active or ready; the character should feel prepared for the boss route.";
   const mapPlayerPlacement = postWin
-    ? "@ Codex9tqnwg near the quest board or town center after turn-in"
-    : "@ Codex9tqnwg near the route toward D";
+    ? `@ ${state.characterName} near the quest board or town center after turn-in`
+    : `@ ${state.characterName} near the route toward D`;
   const insetInstruction = postWin
     ? "Include a small inset/portal preview labeled Fargodeep Cave (Lvl 1). The cave preview should show dark stone corridors, level 1 mobs represented as small hostile markers, and the Shadow Overlord Boss Lvl 4 silhouette as defeated or receding deeper in the cave. It should read as a completed boss threat, not an active fight."
     : "Include a small inset/portal preview labeled Fargodeep Cave (Lvl 1). The cave preview should show dark stone corridors, level 1 mobs represented as small hostile markers, and a looming distant Shadow Overlord Boss Lvl 4 silhouette deeper in the cave. The boss should feel dangerous but not currently engaged.";
@@ -225,11 +224,10 @@ function buildPrompt(state: VisualState, referencePath: string | undefined): str
     referenceInstruction,
     "",
     "Subject:",
-    `${state.characterName}, a Level ${state.level} ${state.className} from a terminal/TUI fantasy RPG. He has ${healthPhrase}, XP ${state.xp}, ${state.gold}, ${state.weapon} with power ${state.weaponPower}, ${state.armor} with armor ${state.armorValue}, and quest ${state.quest}. ${questInstruction} Show him as a practical low-level adventurer: worn cloth robes, simple belt, boots, short upgraded rusty sword with a faint warm glow, ${questPose}. No ornate heroic armor.${bossState}`,
+    `${state.characterName}, a Level ${state.level} ${state.className} from a terminal/TUI fantasy RPG. Current state facts for visual accuracy only: ${healthPhrase}, XP ${state.xp}, ${state.gold}, ${state.weapon} with power ${state.weaponPower}, ${state.armor} with armor ${state.armorValue}, quest state ${state.quest}, run note ${state.runNote} ${questInstruction} Show him as a practical low-level adventurer: worn cloth robes, simple belt, boots, short upgraded rusty sword with a faint warm glow, ${questPose}. No ornate heroic armor.${bossState}`,
     "",
-    "Required in-image current-state panel:",
-    "As part of the generated illustration itself, include a compact terminal-style status panel in the left panel or bottom band with these exact lines. Keep it readable, green/amber terminal text, and do not paraphrase:",
-    ...exactLines,
+    "No Stamped Status Text:",
+    "Do not include a current-state panel, stat block, run note, HP number, XP number, gold number, weapon stat number, armor stat number, quest status text, or any bottom-left caption. Express the current state visually through character posture, gear, town/cave placement, and tactical map context.",
     "",
     "Composition:",
     "Wide 16:9 image. Left third is the character portrait/full-body concept. Right two-thirds is a clean top-down tactical terminal-map visualization.",
@@ -244,7 +242,7 @@ function buildPrompt(state: VisualState, referencePath: string | undefined): str
     "Polished pixel-art plus terminal-map aesthetic, dark parchment background, subtle CRT glow, clean tactical readability, sharp silhouettes, restrained fantasy colors, no clutter, no UI cards, no marketing layout.",
     "",
     "Text constraints:",
-    `Include the exact status block above plus these map labels, spelled exactly: ${state.characterName}, Lvl ${state.level} ${state.className}, Northshire Abbey Town, Fargodeep Cave (Lvl 1), S Merchant, Q Quest, I Inn, D Dungeon, Shadow Overlord Boss Lvl 4. Do not include unrelated text, marketing copy, extra stats, stale quest states, or "Ready!" unless it appears in the exact status block.`
+    `Only include these short readable labels, spelled exactly: ${state.characterName}, Lvl ${state.level} ${state.className}, Northshire Abbey Town, Fargodeep Cave (Lvl 1), S Merchant, Q Quest, I Inn, D Dungeon, Shadow Overlord Boss Lvl 4. Do not include unrelated text, marketing copy, extra stats, stale quest states, "Ready!", current-state captions, status panels, or run notes.`
   ].join("\n");
 }
 
