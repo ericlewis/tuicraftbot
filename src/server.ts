@@ -1180,7 +1180,7 @@ class BotRunner {
       }
       if (this.isMerchantShopOpen(state)) {
         const awayStep = this.stepAwayFrom(state, ["S"]);
-        return { label: "leave merchant shop", key: awayStep ?? "d" };
+        return { label: "leave merchant shop", text: awayStep ?? "d" };
       }
 
       if (run.questComplete || state.questComplete) {
@@ -1211,7 +1211,7 @@ class BotRunner {
         return this.savedPortalAction(run, state);
       }
 
-      const doorStep = this.stepToward(state, ["D"], "onto");
+      const doorStep = this.stepToward(state, ["D"], "onto", { avoidAdjacentKinds: ["S"] });
       if (doorStep) {
         return { label: "enter dungeon", key: doorStep };
       }
