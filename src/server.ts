@@ -1891,8 +1891,15 @@ class BotRunner {
     if ((run.questAccepted || state.questInProgress) && state.level >= 4) {
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
-    if (state.maxDepth && state.maxDepth > 1 && state.level >= 4) {
-      return { label: "enter saved dungeon depth", command: "/enter 2" };
+    if (state.maxDepth && state.maxDepth > 1) {
+      const farmDepth = clampInteger(
+        state.level + 1 - run.tuning.goDeeperLevelMargin,
+        1,
+        state.maxDepth
+      );
+      if (farmDepth > 1) {
+        return { label: "enter scaled dungeon depth", command: `/enter ${farmDepth}` };
+      }
     }
     return { label: "enter saved dungeon portal", command: "/enter 1" };
   }
@@ -2239,6 +2246,12 @@ class BotRunner {
   private stepTowardDeeperDungeonDoor(state: ParsedGameState, options: PathfindOptions = {}): string | undefined {
     if (!state.player) {
       return undefined;
+    }
+    const adjacentLevelOneTargets = state.entities.filter((entity) => {
+      return entity.kind === "D" && state.mapLevel === 1 && manhattan(state.player!, entity) === 1;
+    });
+    if (adjacentLevelOneTargets.length > 0) {
+      return this.pathfind(state, adjacentLevelOneTargets, "onto", options)[0];
     }
     const targets = state.entities.filter((entity) => {
       return entity.kind === "D" && entity.x > state.player!.x && manhattan(state.player!, entity) > 4;
