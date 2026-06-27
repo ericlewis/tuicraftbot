@@ -1226,7 +1226,6 @@ class BotRunner {
         if (Date.now() - run.lastAttackAt < run.tuning.attackCooldownMs) {
           return { label: "wait for attack cooldown", wait: true };
         }
-        run.lastAttackAt = Date.now();
         return { label: "attack selected regular", key: "space" };
       }
       const bossBlockingEntry = Boolean(
@@ -1243,7 +1242,6 @@ class BotRunner {
       );
       if ((bossBlockingEntry || overLevelEliteBossTarget) && hpRatio > 0.9 && run.bossChipMoves < 1) {
         run.bossChipMoves += 1;
-        run.lastAttackAt = Date.now();
         return { label: "chip blocking boss", key: "space" };
       }
       const engagedQuestBoss = Boolean(
@@ -1299,7 +1297,6 @@ class BotRunner {
           state.targetLevel <= allowedTargetLevel
       );
       if (manageableElite && hpRatio >= unsafeHealThreshold) {
-        run.lastAttackAt = Date.now();
         return { label: "chip elite target", key: "space" };
       }
       if (manageableElite) {
@@ -1339,7 +1336,6 @@ class BotRunner {
       const shouldHuntBoss = canFightQuestBoss;
       const bossVisible = shouldHuntBoss && state.entities.some((entity) => entity.kind === "B");
       if (shouldHuntBoss && this.hasAdjacent(state, ["B"])) {
-        run.lastAttackAt = Date.now();
         return { label: "attack adjacent boss", key: "space" };
       }
       if (!bossVisible && this.hasAdjacent(state, ["M"])) {
@@ -2090,6 +2086,9 @@ class BotRunner {
           source: `bot:${run.mode}`,
           redact: action.redact
         });
+        if (action.key === "space") {
+          run.lastAttackAt = Date.now();
+        }
       }
     } catch (error) {
       this.logReconnect(run, `input paused: ${error instanceof Error ? error.message : String(error)}`);
