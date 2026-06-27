@@ -1175,7 +1175,8 @@ class BotRunner {
         return merchantCommand;
       }
       if (this.isMerchantShopOpen(state)) {
-        return { label: "close merchant shop", key: "escape" };
+        const awayStep = this.stepAwayFrom(state, ["S"]);
+        return { label: "leave merchant shop", key: awayStep ?? "d" };
       }
 
       if (run.questComplete || state.questComplete) {
