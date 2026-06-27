@@ -1393,6 +1393,19 @@ class BotRunner {
       const canCastFireball = Boolean(
         selectedSafeRegularTarget && isMageRun && hasSpellMana
       );
+      const canGoDeeper =
+        !run.questAccepted &&
+        state.level >= (state.mapLevel ?? 1) + run.tuning.goDeeperLevelMargin &&
+        hpRatio > run.tuning.goDeeperHpRatio;
+      if (canGoDeeper && (nearestBoss === undefined || nearestBoss > run.tuning.earlyBossContactDistance)) {
+        const deeperStep = this.stepTowardDeeperDungeonDoor(state, {
+          avoidAdjacentKinds: ["B"],
+          avoidRadius: 3
+        });
+        if (deeperStep) {
+          return { label: "take dungeon door", key: deeperStep };
+        }
+      }
       if (
         state.level < run.tuning.earlyBossAvoidPlayerLevel &&
         nearestBoss !== undefined &&
@@ -1406,19 +1419,6 @@ class BotRunner {
           }
         }
         return { label: "bail from nearby boss before farming", command: "/stuck" };
-      }
-      const canGoDeeper =
-        !run.questAccepted &&
-        state.level >= (state.mapLevel ?? 1) + run.tuning.goDeeperLevelMargin &&
-        hpRatio > run.tuning.goDeeperHpRatio;
-      if (canGoDeeper) {
-        const deeperStep = this.stepTowardDeeperDungeonDoor(state, {
-          avoidAdjacentKinds: ["B"],
-          avoidRadius: 3
-        });
-        if (deeperStep) {
-          return { label: "take dungeon door", key: deeperStep };
-        }
       }
       if (lowLevelFarming && state.adjacentMobCount > run.tuning.maxAdjacentRegularMobs) {
         const awayStep = this.stepAwayFrom(state, ["M"], { blockedChars: ["D"] });
