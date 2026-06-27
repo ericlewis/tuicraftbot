@@ -1290,6 +1290,10 @@ class BotRunner {
         }
       }
       if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.safeTargetHealHpRatio) {
+        const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
+        if (!attackReady) {
+          return { label: "wait for attack cooldown", wait: true };
+        }
         return { label: "attack selected regular", key: "space" };
       }
       const bossBlockingEntry = Boolean(
