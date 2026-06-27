@@ -992,6 +992,9 @@ class BotRunner {
     }
 
     const setupAction = this.chooseSetupAction(run, screen.text);
+    if (run.status !== "running") {
+      return;
+    }
     if (setupAction) {
       await this.sendAction(run, setupAction);
       return;
@@ -1099,6 +1102,10 @@ class BotRunner {
           : text.match(/Type\s+(\d+)\s+to\s+load:/i)?.[1];
         if (slot) {
           return { label: "load existing character", text: `${slot}\r` };
+        }
+        if (run.characterName) {
+          this.failRun(run, "requested character not found", { characterName: run.characterName });
+          return undefined;
         }
       }
       return { label: "create new character", text: "new\r" };
