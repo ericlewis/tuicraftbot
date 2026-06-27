@@ -1417,6 +1417,12 @@ class BotRunner {
         (spellReady || state.targetHp.current <= Math.max(16, Math.ceil(state.targetHp.max * 0.45)))
       ) {
         if (!spellReady) {
+          const canLowHpMeleeFinish =
+            state.targetHp.current <= run.tuning.mageMeleeFinishHp && this.hasAdjacent(state, ["M"]);
+          const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
+          if (canLowHpMeleeFinish && attackReady) {
+            return { label: "finish low-hp target", key: "space" };
+          }
           return { label: "wait for spell cooldown", wait: true };
         }
         return { label: "cast fireball", text: "f" };
