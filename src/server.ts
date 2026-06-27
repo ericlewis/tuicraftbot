@@ -1370,9 +1370,9 @@ class BotRunner {
       const nearestBoss = this.nearestDistance(state, ["B"]);
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
       const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
-      const lowLevelFarming = state.level < 3 && !questBossRun;
-      const lowLevelHealFloor = lowLevelFarming ? 0.7 : 0;
-      const safeTargetHealThreshold = lowLevelFarming
+      const preEliteFarming = state.level < run.tuning.eliteQuestMinLevel && !questBossRun;
+      const lowLevelHealFloor = preEliteFarming ? 0.7 : 0;
+      const safeTargetHealThreshold = preEliteFarming
         ? Math.max(run.tuning.safeTargetHealHpRatio, run.tuning.lowLevelSafeTargetHealHpRatio)
         : run.tuning.safeTargetHealHpRatio;
       const unsafeHealThreshold = Math.max(run.tuning.unsafeTargetHealHpRatio, lowLevelHealFloor);
@@ -1390,7 +1390,7 @@ class BotRunner {
           run.lastKnownMana = { current: 0, max: run.lastKnownMana.max };
         }
       }
-      if (!isMageRun && lowLevelFarming && selectedSafeRegularTarget && /Orc Grunt/i.test(state.targetText ?? "")) {
+      if (!isMageRun && preEliteFarming && selectedSafeRegularTarget && /Orc Grunt/i.test(state.targetText ?? "")) {
         const alternateMobStep = this.stepTowardDistantMob(state, 2, {
           blockedChars: ["D"],
           avoidAdjacentKinds: ["B"],
@@ -1412,6 +1412,24 @@ class BotRunner {
         selectedSafeRegularTarget && isMageRun && hasSpellMana
       );
       const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
+      const mageCanFinishRegularTarget = Boolean(
+        canCastFireball &&
+          state.targetHp &&
+          state.targetHp.current <= Math.max(16, Math.ceil(state.targetHp.max * 0.45))
+      );
+      if (preEliteFarming && state.adjacentMobCount > run.tuning.maxAdjacentRegularMobs) {
+        if (mageCanFinishRegularTarget && hpRatio > safeTargetHealThreshold) {
+          if (!spellReady) {
+            return { label: "wait to finish crowded target", wait: true };
+          }
+          return { label: "finish crowded target", text: "f" };
+        }
+        const awayStep = this.stepAwayFrom(state, ["M"], { blockedChars: ["D"] });
+        if (awayStep) {
+          return { label: "isolate pre-elite mob", key: awayStep };
+        }
+        return { label: "bail from multi-mob pre-elite fight", command: "/stuck" };
+      }
       const canGoDeeper =
         !run.questAccepted &&
         state.level >= (state.mapLevel ?? 1) + run.tuning.goDeeperLevelMargin &&
@@ -1426,7 +1444,7 @@ class BotRunner {
         }
       }
       if (
-        lowLevelFarming &&
+        preEliteFarming &&
         canCastFireball &&
         hpRatio > run.tuning.lowLevelSafeTargetHealHpRatio &&
         state.targetHp &&
@@ -1446,7 +1464,7 @@ class BotRunner {
         return { label: "cast fireball", text: "f" };
       }
       if (
-        state.level < run.tuning.earlyBossAvoidPlayerLevel &&
+        preEliteFarming &&
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossAvoidDistance
       ) {
@@ -1461,13 +1479,6 @@ class BotRunner {
           }
         }
         return { label: "bail from nearby boss before farming", command: "/stuck" };
-      }
-      if (lowLevelFarming && state.adjacentMobCount > run.tuning.maxAdjacentRegularMobs) {
-        const awayStep = this.stepAwayFrom(state, ["M"], { blockedChars: ["D"] });
-        if (awayStep) {
-          return { label: "isolate low-level mob", key: awayStep };
-        }
-        return { label: "bail from multi-mob low-level fight", command: "/stuck" };
       }
       if (selectedSafeRegularTarget && regularFightAssessment.shouldBail) {
         return { label: regularFightAssessment.reason ?? "bail from stalled regular fight", command: "/stuck" };
@@ -1534,7 +1545,7 @@ class BotRunner {
         };
       }
       if (
-        state.level < run.tuning.earlyBossAvoidPlayerLevel &&
+        preEliteFarming &&
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossAvoidDistance
       ) {
@@ -1724,12 +1735,16 @@ class BotRunner {
       action.label === "bail from early boss contact" ||
       action.label === "bail to heal" ||
       action.label === "bail to restore mage mana" ||
+      action.label === "bail from multi-mob pre-elite fight" ||
       action.label === "lure boss away from low-level farm" ||
       action.label === "target hp reset during regular fight" ||
       action.label === "regular target hp stalled" ||
       action.label === "seek non-orc starter mob" ||
       action.label === "disengage orc starter mob" ||
       action.label === "isolate low-level mob" ||
+      action.label === "isolate pre-elite mob" ||
+      action.label === "finish crowded target" ||
+      action.label === "wait to finish crowded target" ||
       action.label === "kite target during cooldown"
     ) {
       return false;
@@ -3216,7 +3231,9 @@ function buildJudgePayload(
     Boolean(nearestBossDistance !== undefined && nearestBossDistance <= tuning.earlyBossContactDistance);
   const gearReady = !state.weaponMissing && !state.armorMissing;
   const lowLevelSafeTargetHealHpRatio =
-    state.level < 3 ? Math.max(tuning.safeTargetHealHpRatio, tuning.lowLevelSafeTargetHealHpRatio) : tuning.safeTargetHealHpRatio;
+    state.level < tuning.eliteQuestMinLevel
+      ? Math.max(tuning.safeTargetHealHpRatio, tuning.lowLevelSafeTargetHealHpRatio)
+      : tuning.safeTargetHealHpRatio;
   const safeMobFarming =
     state.inDungeon &&
     !bossThreatening &&
@@ -3239,7 +3256,7 @@ function buildJudgePayload(
       "If noActiveQuest is true, do not hunt Shadow Overlord unless a new Elite Slayer quest has been accepted.",
       "Treat weaponMissing or armorMissing as a boss-blocking gear problem; prefer gear repair or town actions when candidates allow it.",
       "Missing armor alone is not a retreat reason for full-health level-appropriate mob farming, especially at level 1.",
-      `At levels below 3, treat ${tuning.lowLevelSafeTargetHealHpRatio} as the regular-fight HP floor and avoid more than ${tuning.maxAdjacentRegularMobs} adjacent regular mob.`,
+      `Before level ${tuning.eliteQuestMinLevel}, treat ${tuning.lowLevelSafeTargetHealHpRatio} as the regular-fight HP floor and avoid more than ${tuning.maxAdjacentRegularMobs} adjacent regular mob.`,
       "If the visible regular target HP resets upward or stalls, prefer a reset/heal path over repeatedly attacking the same situation.",
       `Prefer boss progress only when bossEligible is true and HP is above ${tuning.questBossMinFightHpRatio}.`,
       `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, below the low-level regular-fight floor, the target is over-level, a boss is adjacent/targeted, multiple mobs are adjacent, target HP has reset/stalled, or no safe progress candidate exists.`,
