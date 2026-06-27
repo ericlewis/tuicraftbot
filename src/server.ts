@@ -1340,7 +1340,7 @@ class BotRunner {
           run.lastKnownMana = { current: 0, max: run.lastKnownMana.max };
         }
       }
-      if (lowLevelFarming && selectedSafeRegularTarget && /Orc Grunt/i.test(state.targetText ?? "")) {
+      if (!isMageRun && lowLevelFarming && selectedSafeRegularTarget && /Orc Grunt/i.test(state.targetText ?? "")) {
         const alternateMobStep = this.stepTowardDistantMob(state, 2, {
           blockedChars: ["D"],
           avoidAdjacentKinds: ["B"],
