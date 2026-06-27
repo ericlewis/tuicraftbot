@@ -1332,9 +1332,15 @@ class BotRunner {
         run.lastAttackAt = Date.now();
         return { label: "attack adjacent boss", key: "space" };
       }
-      if (!bossVisible && this.hasAdjacent(state, ["M"]) && state.targetLevel && !state.targetIsEliteOrBoss) {
-        run.lastAttackAt = Date.now();
-        return { label: "attack adjacent enemy", key: "space" };
+      if (!bossVisible && this.hasAdjacent(state, ["M"])) {
+        const engageStep = this.stepToward(state, ["M"], "onto", {
+          blockedChars: ["D"],
+          avoidAdjacentKinds: ["B"],
+          avoidRadius: 3
+        });
+        if (engageStep) {
+          return { label: "engage adjacent mob", key: engageStep };
+        }
       }
 
       const targetKinds = bossVisible ? ["B"] : ["M"];
@@ -1515,15 +1521,6 @@ class BotRunner {
         "Boss marker is adjacent and HP is above the critical retreat threshold."
       );
     }
-    if (!state.targetIsEliteOrBoss && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.judgeMobHpRatio) {
-      this.addJudgeCandidate(
-        candidates,
-        "attack_adjacent_mob",
-        { label: "attack adjacent enemy", key: "space" },
-        "A regular mob is adjacent and HP is above the normal combat threshold."
-      );
-    }
-
     const bossStep =
       questBossRun && hpRatio > run.tuning.judgeBossHpRatio
         ? this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D"] })
@@ -1537,7 +1534,7 @@ class BotRunner {
       );
     }
     const mobStep =
-      hpRatio > run.tuning.judgeMobHpRatio ? this.stepToward(state, ["M"], "adjacent", { blockedChars: ["D"] }) : undefined;
+      hpRatio > run.tuning.judgeMobHpRatio ? this.stepToward(state, ["M"], "onto", { blockedChars: ["D"] }) : undefined;
     if (mobStep) {
       this.addJudgeCandidate(
         candidates,
