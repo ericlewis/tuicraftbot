@@ -1411,6 +1411,9 @@ class BotRunner {
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossAvoidDistance
       ) {
+        if (nearestBoss <= run.tuning.earlyBossContactDistance) {
+          return { label: "bail from nearby boss before farming", command: "/stuck" };
+        }
         if (hpRatio > 0.85 && run.bossLureMoves < 1) {
           const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
           if (awayStep) {
@@ -1679,7 +1682,10 @@ class BotRunner {
       action.label === "finish low-hp target" ||
       action.label === "bail from over-depth dungeon" ||
       action.label === "bail from multi-mob low-level fight" ||
+      action.label === "bail from nearby boss before farming" ||
+      action.label === "bail to heal" ||
       action.label === "bail to restore mage mana" ||
+      action.label === "lure boss away from low-level farm" ||
       action.label === "target hp reset during regular fight" ||
       action.label === "regular target hp stalled" ||
       action.label === "seek non-orc starter mob" ||
