@@ -83,6 +83,7 @@ type BotTuningConfig = {
   maxArmorUpgrade: number;
   upgradeCostBaseGold: number;
   attackCooldownMs: number;
+  mageManaRestMs: number;
 };
 
 type BotRunSummary = {
@@ -193,7 +194,8 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   maxWeaponUpgrade: 4,
   maxArmorUpgrade: 4,
   upgradeCostBaseGold: 100,
-  attackCooldownMs: 3_000
+  attackCooldownMs: 3_000,
+  mageManaRestMs: 15_000
 };
 
 class GameBridge {
@@ -621,6 +623,7 @@ type ParsedGameState = {
   questInProgress: boolean;
   questComplete: boolean;
   noActiveQuest: boolean;
+  manaExhausted: boolean;
   dead: boolean;
   winText: boolean;
 };
@@ -661,6 +664,8 @@ type BotRunState = {
   starterArmorChecked: boolean;
   bossLureMoves: number;
   bossChipMoves: number;
+  mageNeedsManaRest: boolean;
+  mageManaRestUntil: number;
   lastKnownGold?: number;
   lastKnownWeaponUpgrade?: number;
   lastKnownArmorUpgrade?: number;
@@ -791,6 +796,8 @@ class BotRunner {
       starterArmorChecked: false,
       bossLureMoves: 0,
       bossChipMoves: 0,
+      mageNeedsManaRest: false,
+      mageManaRestUntil: 0,
       lastKnownGold: undefined,
       lastKnownWeaponUpgrade: undefined,
       lastKnownArmorUpgrade: undefined,
@@ -1201,6 +1208,21 @@ class BotRunner {
         }
         return { label: "rest in town", key: "space" };
       }
+      if (run.characterClass === "mage" && run.mageNeedsManaRest) {
+        const now = Date.now();
+        if (run.mageManaRestUntil === 0) {
+          run.mageManaRestUntil = now + run.tuning.mageManaRestMs;
+        }
+        if (now < run.mageManaRestUntil) {
+          const manaStep = this.stepToward(state, ["I"], "onto");
+          if (manaStep) {
+            return { label: "go to inn to restore mage mana", key: manaStep };
+          }
+          return { label: "rest to restore mage mana", key: "space" };
+        }
+        run.mageNeedsManaRest = false;
+        run.mageManaRestUntil = 0;
+      }
 
       if (state.armorMissing && !run.starterArmorChecked) {
         return { label: "open inventory to equip starter armor", command: "/inventory" };
@@ -1277,10 +1299,15 @@ class BotRunner {
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
       const isMageRun = state.className === "Mage" || run.characterClass === "mage";
+      if (isMageRun && state.manaExhausted) {
+        run.mageNeedsManaRest = true;
+      }
+      const hasSpellMana = state.mana ? state.mana.current >= 10 : !run.mageNeedsManaRest;
       const canCastFireball = Boolean(
-        selectedSafeRegularTarget && isMageRun && (state.mana === undefined || state.mana.current > 0)
+        selectedSafeRegularTarget && isMageRun && hasSpellMana
       );
       if (canCastFireball && hpRatio > run.tuning.safeTargetHealHpRatio) {
+        run.mageNeedsManaRest = true;
         return { label: "cast fireball", text: "f" };
       }
       if (
@@ -1304,6 +1331,9 @@ class BotRunner {
           return { label: "wait for attack cooldown", wait: true };
         }
         return { label: "attack selected regular", key: "space" };
+      }
+      if (isMageRun && run.mageNeedsManaRest && !this.hasAdjacent(state, ["M"]) && !questBossRun) {
+        return { label: "bail to restore mage mana", command: "/stuck" };
       }
       const bossBlockingEntry = Boolean(
         !canFightQuestBoss &&
@@ -1783,6 +1813,12 @@ class BotRunner {
     const xpMatch = screen.text.match(/XP:\s*(\d+)\/(\d+)/);
     const goldMatch = screen.text.match(/(?:GP|Gold):\s*(\d+)g/);
     const swingMatch = screen.text.match(/Swing:\s*([^\n│]+)/);
+    const noManaIndex = screen.text.lastIndexOf("Not enough Mana");
+    const manaRestIndex = Math.max(
+      screen.text.lastIndexOf("Recovered"),
+      screen.text.lastIndexOf("Mana Globe"),
+      screen.text.lastIndexOf("Your Fireball hits")
+    );
     const weaponUpgradeMatch = screen.text.match(/Wpn:[^\n│]*\+(\d+)/) ?? screen.text.match(/Weapon:\s*\+(\d+)/);
     const armorUpgradeMatch = screen.text.match(/Arm:[^\n│]*\+(\d+)/) ?? screen.text.match(/Armor\s*:\s*\+(\d+)/);
     const weaponMissing = /\bWpn:\s*None\b/i.test(screen.text);
@@ -1844,6 +1880,7 @@ class BotRunner {
       questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill|Quest:\s*Elite Slayer\s*\(Ready!\)/i.test(screen.text),
       questComplete: /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest complete|Reward claimed/i.test(screen.text),
       noActiveQuest: /\bNo active quest\b/i.test(screen.text),
+      manaExhausted: noManaIndex >= 0 && noManaIndex > manaRestIndex,
       dead: hpMatch ? Number(hpMatch[1]) <= 0 : deathTextVisible && !inTown,
       winText: this.hasSystemWinText(screen)
     };
@@ -1863,6 +1900,7 @@ class BotRunner {
       state.gold ?? "",
       state.targetLevel ?? "",
       state.targetIsEliteOrBoss ? "elite-boss" : "",
+      state.manaExhausted ? "mana-empty" : "",
       state.dead ? "dead" : ""
     ].join("|");
     if (signature === run.lastStateSignature) {
@@ -1879,6 +1917,7 @@ class BotRunner {
       gold: state.gold,
       targetLevel: state.targetLevel,
       targetIsEliteOrBoss: state.targetIsEliteOrBoss,
+      manaExhausted: state.manaExhausted,
       target: state.targetText
     });
   }
@@ -2692,6 +2731,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "maxArmorUpgrade");
   setTuningNumber(tuning, source, "upgradeCostBaseGold");
   setTuningNumber(tuning, source, "attackCooldownMs");
+  setTuningNumber(tuning, source, "mageManaRestMs");
   return Object.keys(tuning).length > 0 ? tuning : undefined;
 }
 
@@ -2772,7 +2812,8 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
     maxWeaponUpgrade: tuneInteger(overrides, "maxWeaponUpgrade", "TUICRAFT_MAX_WEAPON_UPGRADE", 0, 20),
     maxArmorUpgrade: tuneInteger(overrides, "maxArmorUpgrade", "TUICRAFT_MAX_ARMOR_UPGRADE", 0, 20),
     upgradeCostBaseGold: tuneInteger(overrides, "upgradeCostBaseGold", "TUICRAFT_UPGRADE_COST_BASE_GOLD", 1, 10_000),
-    attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 500, 10_000)
+    attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 500, 10_000),
+    mageManaRestMs: tuneInteger(overrides, "mageManaRestMs", "TUICRAFT_MAGE_MANA_REST_MS", 0, 120_000)
   };
 }
 
