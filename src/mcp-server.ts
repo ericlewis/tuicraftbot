@@ -240,12 +240,13 @@ server.registerTool(
   },
   async ({ command }) => {
     const trimmed = command.trim();
+    const commandText = trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
     const base = apiBase();
     await apiPost(base, "/api/input", { key: "escape" });
     await sleep(40);
     await apiPost(base, "/api/input", { text: "/" });
     await sleep(80);
-    await apiPost(base, "/api/input", { text: trimmed.startsWith("/") ? trimmed : `/${trimmed}` });
+    await apiPost(base, "/api/input", { text: commandText });
     await sleep(40);
     return textResult(await apiPost(base, "/api/input", { key: "enter" }));
   }
