@@ -948,6 +948,13 @@ class BotRunner {
       return { label: "dismiss modal", key: "space" };
     }
     if (/--- INVENTORY ---|Manage Inventory|Press ESC to close inventory/i.test(text)) {
+      if (/--- ACTION ---/i.test(text) && /Item:\s*Tattered Cloth Robes/i.test(text)) {
+        if (/▶\s*Equip Item/i.test(text)) {
+          return { label: "confirm starter armor equip", key: "enter" };
+        }
+        run.starterArmorChecked = true;
+        return { label: "close starter armor action", key: "escape" };
+      }
       if (/Tattered Cloth Robes/i.test(text) && !/Tattered Cloth Robes[^\n]*\(Equipped\)/i.test(text)) {
         if (/▶\s*Tattered Cloth Robes/i.test(text)) {
           return { label: "equip starter armor", text: "e" };
