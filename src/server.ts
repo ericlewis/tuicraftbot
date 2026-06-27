@@ -1249,6 +1249,16 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
+      if (state.level <= 1 && selectedSafeRegularTarget && /Orc Grunt/i.test(state.targetText ?? "")) {
+        const alternateMobStep = this.stepTowardDistantMob(state, 2, {
+          blockedChars: ["D"],
+          avoidAdjacentKinds: ["B"],
+          avoidRadius: 3
+        });
+        if (alternateMobStep) {
+          return { label: "seek non-orc starter mob", key: alternateMobStep };
+        }
+      }
       if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.safeTargetHealHpRatio) {
         return { label: "attack selected regular", key: "space" };
       }
@@ -1901,6 +1911,23 @@ class BotRunner {
     }
     const path = this.pathfind(state, targets, mode, options);
     return path[0];
+  }
+
+  private stepTowardDistantMob(
+    state: ParsedGameState,
+    minDistance: number,
+    options: PathfindOptions = {}
+  ): string | undefined {
+    if (!state.player) {
+      return undefined;
+    }
+    const targets = state.entities.filter((entity) => {
+      return entity.kind === "M" && manhattan(state.player!, entity) > minDistance;
+    });
+    if (targets.length === 0) {
+      return undefined;
+    }
+    return this.pathfind(state, targets, "onto", options)[0];
   }
 
   private pathfind(
