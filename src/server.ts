@@ -1219,14 +1219,6 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
-      if (
-        this.hasAdjacent(state, ["M"]) &&
-        !state.targetIsEliteOrBoss &&
-        hpRatio > run.tuning.safeTargetHealHpRatio
-      ) {
-        run.lastAttackAt = Date.now();
-        return { label: "finish adjacent regular before retreat", key: "space" };
-      }
       const bossBlockingEntry = Boolean(
         !canFightQuestBoss &&
           nearestBoss !== undefined &&
@@ -1340,13 +1332,14 @@ class BotRunner {
         run.lastAttackAt = Date.now();
         return { label: "attack adjacent boss", key: "space" };
       }
-      if (!bossVisible && this.hasAdjacent(state, ["M"])) {
+      if (!bossVisible && this.hasAdjacent(state, ["M"]) && state.targetLevel && !state.targetIsEliteOrBoss) {
         run.lastAttackAt = Date.now();
         return { label: "attack adjacent enemy", key: "space" };
       }
 
       const targetKinds = bossVisible ? ["B"] : ["M"];
-      const fightStep = this.stepToward(state, targetKinds, "adjacent", {
+      const fightMode = bossVisible ? "adjacent" : "onto";
+      const fightStep = this.stepToward(state, targetKinds, fightMode, {
         blockedChars: ["D"],
         avoidAdjacentKinds: bossVisible ? undefined : ["B"],
         avoidRadius: 3
@@ -1450,7 +1443,6 @@ class BotRunner {
       label.includes("sidestep elite target") ||
       label.includes("chip elite target") ||
       label.includes("chip blocking boss") ||
-      label.includes("finish adjacent regular") ||
       label.includes("lure boss")
     ) {
       return false;
