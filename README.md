@@ -80,10 +80,16 @@ BOT_CHARACTER_NAME=Codex... \
 bun run bot:resume
 ```
 
-`bot:resume` defaults to a 1200 ms action interval and `BOT_MAX_RECONNECTS=6`
-so server restarts, kicks, or bans do not cause aggressive reconnect loops. The
-bot also stops with an error finding when the visible terminal reports a kick,
-ban, rate limit, access denial, or terminated session.
+`bot:resume` also reads `config/tuicraft-win.json` by default, or another JSON
+file via `BOT_RESUME_CONFIG` or `--config path/to/config.json`. Keep credentials
+in environment variables, not config. Env values override the config for account,
+character, run limits, judge, chat, and world-seed fields.
+
+`bot:resume` falls back to a 1200 ms action interval and
+`BOT_MAX_RECONNECTS=6` when neither env nor config supplies them, so server
+restarts, kicks, or bans do not cause aggressive reconnect loops. The bot also
+stops with an error finding when the visible terminal reports a kick, ban, rate
+limit, access denial, or terminated session.
 
 Modes:
 
