@@ -74,9 +74,11 @@ type BotTuningConfig = {
   lowLevelSafeTargetHealHpRatio: number;
   unsafeTargetHealHpRatio: number;
   goDeeperHpRatio: number;
+  goDeeperLevelMargin: number;
   judgeBossHpRatio: number;
   judgeMobHpRatio: number;
   judgeRetreatCandidateHpRatio: number;
+  eliteQuestMinLevel: number;
   earlyBossAvoidPlayerLevel: number;
   earlyBossAvoidDistance: number;
   earlyBossContactDistance: number;
@@ -85,6 +87,7 @@ type BotTuningConfig = {
   upgradeCostBaseGold: number;
   attackCooldownMs: number;
   spellCooldownMs: number;
+  mageMeleeFinishHp: number;
   mageManaRestMs: number;
   maxAdjacentRegularMobs: number;
   targetHpResetBailCount: number;
@@ -191,9 +194,11 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   lowLevelSafeTargetHealHpRatio: 0.65,
   unsafeTargetHealHpRatio: 0.55,
   goDeeperHpRatio: 0.85,
+  goDeeperLevelMargin: 2,
   judgeBossHpRatio: 0.35,
   judgeMobHpRatio: 0.45,
   judgeRetreatCandidateHpRatio: 0.7,
+  eliteQuestMinLevel: 4,
   earlyBossAvoidPlayerLevel: 3,
   earlyBossAvoidDistance: 3,
   earlyBossContactDistance: 1,
@@ -202,6 +207,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   upgradeCostBaseGold: 100,
   attackCooldownMs: 3_000,
   spellCooldownMs: 1_100,
+  mageMeleeFinishHp: 16,
   mageManaRestMs: 15_000,
   maxAdjacentRegularMobs: 1,
   targetHpResetBailCount: 1,
@@ -1253,7 +1259,7 @@ class BotRunner {
       run.bossLureMoves = 0;
       run.bossChipMoves = 0;
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
-      const readyForEliteQuest = state.level >= 3;
+      const readyForEliteQuest = state.level >= run.tuning.eliteQuestMinLevel;
       if (run.characterClass === "mage" && state.mana && state.mana.current >= 10) {
         run.mageNeedsManaRest = false;
         run.mageManaRestUntil = 0;
@@ -1415,7 +1421,7 @@ class BotRunner {
         selectedSafeRegularTarget &&
           isMageRun &&
           state.targetHp &&
-          state.targetHp.current <= 6 &&
+          state.targetHp.current <= run.tuning.mageMeleeFinishHp &&
           this.hasAdjacent(state, ["M"])
       );
       if (canMeleeFinishTarget && hpRatio > safeTargetHealThreshold) {
@@ -1576,7 +1582,7 @@ class BotRunner {
 
       const canGoDeeper =
         !run.questAccepted &&
-        state.level >= (state.mapLevel ?? 1) + 2 &&
+        state.level >= (state.mapLevel ?? 1) + run.tuning.goDeeperLevelMargin &&
         hpRatio > run.tuning.goDeeperHpRatio;
       if (canGoDeeper) {
         const deeperStep = this.stepToward(state, ["D"], "onto");
@@ -2926,9 +2932,11 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "lowLevelSafeTargetHealHpRatio");
   setTuningNumber(tuning, source, "unsafeTargetHealHpRatio");
   setTuningNumber(tuning, source, "goDeeperHpRatio");
+  setTuningNumber(tuning, source, "goDeeperLevelMargin");
   setTuningNumber(tuning, source, "judgeBossHpRatio");
   setTuningNumber(tuning, source, "judgeMobHpRatio");
   setTuningNumber(tuning, source, "judgeRetreatCandidateHpRatio");
+  setTuningNumber(tuning, source, "eliteQuestMinLevel");
   setTuningNumber(tuning, source, "earlyBossAvoidPlayerLevel");
   setTuningNumber(tuning, source, "earlyBossAvoidDistance");
   setTuningNumber(tuning, source, "earlyBossContactDistance");
@@ -2937,6 +2945,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "upgradeCostBaseGold");
   setTuningNumber(tuning, source, "attackCooldownMs");
   setTuningNumber(tuning, source, "spellCooldownMs");
+  setTuningNumber(tuning, source, "mageMeleeFinishHp");
   setTuningNumber(tuning, source, "mageManaRestMs");
   setTuningNumber(tuning, source, "maxAdjacentRegularMobs");
   setTuningNumber(tuning, source, "targetHpResetBailCount");
@@ -2995,6 +3004,7 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       1
     ),
     goDeeperHpRatio: tuneNumber(overrides, "goDeeperHpRatio", "TUICRAFT_GO_DEEPER_HP_RATIO", 0, 1),
+    goDeeperLevelMargin: tuneInteger(overrides, "goDeeperLevelMargin", "TUICRAFT_GO_DEEPER_LEVEL_MARGIN", 1, 10),
     judgeBossHpRatio: tuneNumber(overrides, "judgeBossHpRatio", "TUICRAFT_JUDGE_BOSS_HP_RATIO", 0, 1),
     judgeMobHpRatio: tuneNumber(overrides, "judgeMobHpRatio", "TUICRAFT_JUDGE_MOB_HP_RATIO", 0, 1),
     judgeRetreatCandidateHpRatio: tuneNumber(
@@ -3004,6 +3014,7 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       0,
       1
     ),
+    eliteQuestMinLevel: tuneInteger(overrides, "eliteQuestMinLevel", "TUICRAFT_ELITE_QUEST_MIN_LEVEL", 1, 100),
     earlyBossAvoidPlayerLevel: tuneInteger(
       overrides,
       "earlyBossAvoidPlayerLevel",
@@ -3030,6 +3041,7 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
     upgradeCostBaseGold: tuneInteger(overrides, "upgradeCostBaseGold", "TUICRAFT_UPGRADE_COST_BASE_GOLD", 1, 10_000),
     attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 200, 10_000),
     spellCooldownMs: tuneInteger(overrides, "spellCooldownMs", "TUICRAFT_SPELL_COOLDOWN_MS", 200, 10_000),
+    mageMeleeFinishHp: tuneInteger(overrides, "mageMeleeFinishHp", "TUICRAFT_MAGE_MELEE_FINISH_HP", 0, 10_000),
     mageManaRestMs: tuneInteger(overrides, "mageManaRestMs", "TUICRAFT_MAGE_MANA_REST_MS", 0, 120_000),
     maxAdjacentRegularMobs: tuneInteger(
       overrides,
