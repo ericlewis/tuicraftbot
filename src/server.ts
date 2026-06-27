@@ -1393,6 +1393,7 @@ class BotRunner {
       const canCastFireball = Boolean(
         selectedSafeRegularTarget && isMageRun && hasSpellMana
       );
+      const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
       const canGoDeeper =
         !run.questAccepted &&
         state.level >= (state.mapLevel ?? 1) + run.tuning.goDeeperLevelMargin &&
@@ -1405,6 +1406,16 @@ class BotRunner {
         if (deeperStep) {
           return { label: "take dungeon door", key: deeperStep };
         }
+      }
+      if (
+        lowLevelFarming &&
+        canCastFireball &&
+        spellReady &&
+        hpRatio > run.tuning.lowLevelSafeTargetHealHpRatio &&
+        nearestBoss !== undefined &&
+        nearestBoss <= run.tuning.earlyBossAvoidDistance
+      ) {
+        return { label: "cast fireball", text: "f" };
       }
       if (
         state.level < run.tuning.earlyBossAvoidPlayerLevel &&
@@ -1448,7 +1459,6 @@ class BotRunner {
         return { label: "finish low-hp target", key: "space" };
       }
       if (canCastFireball && hpRatio > safeTargetHealThreshold) {
-        const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
         if (!spellReady) {
           return { label: "wait for spell cooldown", wait: true };
         }
