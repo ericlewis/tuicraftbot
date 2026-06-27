@@ -896,6 +896,10 @@ class BotRunner {
         await sleep(this.nextDelay(run));
       }
 
+      if (this.run === run && run.status === "running" && run.mode === "win") {
+        await this.extractBeforeWinRunStop(run);
+      }
+
       if (this.run === run && run.status === "running") {
         run.status = "completed";
         run.stoppedAt = new Date().toISOString();
@@ -944,6 +948,24 @@ class BotRunner {
       this.publishStatus();
       return false;
     }
+  }
+
+  private async extractBeforeWinRunStop(run: BotRunState): Promise<void> {
+    const screen = this.bridge.getScreen();
+    if (!screen.text.trim() || !this.isInWorld(screen.text)) {
+      return;
+    }
+    const state = this.parseGameState(screen);
+    if (!state.dead && !state.inDungeon) {
+      return;
+    }
+    this.log("warn", "extract before bounded win run stop", {
+      map: state.mapName,
+      dead: state.dead,
+      hp: state.hp ? `${state.hp.current}/${state.hp.max}` : undefined
+    });
+    await this.sendAction(run, { label: "extract before bounded win run stop", command: "/stuck" });
+    await sleep(1_000);
   }
 
   private async tick(run: BotRunState): Promise<void> {
@@ -1361,6 +1383,20 @@ class BotRunner {
       const canCastFireball = Boolean(
         selectedSafeRegularTarget && isMageRun && hasSpellMana
       );
+      if (
+        state.level < run.tuning.earlyBossAvoidPlayerLevel &&
+        nearestBoss !== undefined &&
+        nearestBoss <= run.tuning.earlyBossAvoidDistance
+      ) {
+        if (hpRatio > 0.85 && run.bossLureMoves < 1) {
+          const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+          if (awayStep) {
+            run.bossLureMoves += 1;
+            return { label: "lure boss away from low-level farm", key: awayStep };
+          }
+        }
+        return { label: "bail from nearby boss before farming", command: "/stuck" };
+      }
       if (lowLevelFarming && state.adjacentMobCount > run.tuning.maxAdjacentRegularMobs) {
         const awayStep = this.stepAwayFrom(state, ["M"], { blockedChars: ["D"] });
         if (awayStep) {
