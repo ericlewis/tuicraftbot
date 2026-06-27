@@ -1407,6 +1407,19 @@ class BotRunner {
         }
         return { label: "bail from nearby boss before farming", command: "/stuck" };
       }
+      const canGoDeeper =
+        !run.questAccepted &&
+        state.level >= (state.mapLevel ?? 1) + run.tuning.goDeeperLevelMargin &&
+        hpRatio > run.tuning.goDeeperHpRatio;
+      if (canGoDeeper) {
+        const deeperStep = this.stepToward(state, ["D"], "onto", {
+          avoidAdjacentKinds: ["B"],
+          avoidRadius: 3
+        });
+        if (deeperStep) {
+          return { label: "take dungeon door", key: deeperStep };
+        }
+      }
       if (lowLevelFarming && state.adjacentMobCount > run.tuning.maxAdjacentRegularMobs) {
         const awayStep = this.stepAwayFrom(state, ["M"], { blockedChars: ["D"] });
         if (awayStep) {
@@ -1578,17 +1591,6 @@ class BotRunner {
       });
       if (fightStep) {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
-      }
-
-      const canGoDeeper =
-        !run.questAccepted &&
-        state.level >= (state.mapLevel ?? 1) + run.tuning.goDeeperLevelMargin &&
-        hpRatio > run.tuning.goDeeperHpRatio;
-      if (canGoDeeper) {
-        const deeperStep = this.stepToward(state, ["D"], "onto");
-        if (deeperStep) {
-          return { label: "take dungeon door", key: deeperStep };
-        }
       }
 
       const safeProbeStep = this.safeDungeonProbeStep(state);
