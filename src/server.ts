@@ -84,6 +84,7 @@ type BotTuningConfig = {
   maxArmorUpgrade: number;
   upgradeCostBaseGold: number;
   attackCooldownMs: number;
+  spellCooldownMs: number;
   mageManaRestMs: number;
   maxAdjacentRegularMobs: number;
   targetHpResetBailCount: number;
@@ -200,6 +201,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   maxArmorUpgrade: 4,
   upgradeCostBaseGold: 100,
   attackCooldownMs: 3_000,
+  spellCooldownMs: 1_100,
   mageManaRestMs: 15_000,
   maxAdjacentRegularMobs: 1,
   targetHpResetBailCount: 1,
@@ -669,6 +671,7 @@ type BotRunState = {
   blankScreenCount: number;
   nextBlankScreenLogAt: number;
   lastAttackAt: number;
+  lastSpellAt: number;
   questAccepted: boolean;
   questComplete: boolean;
   starterWeaponChecked: boolean;
@@ -808,6 +811,7 @@ class BotRunner {
       blankScreenCount: 0,
       nextBlankScreenLogAt: 0,
       lastAttackAt: 0,
+      lastSpellAt: 0,
       questAccepted: false,
       questComplete: false,
       starterWeaponChecked: false,
@@ -1407,7 +1411,25 @@ class BotRunner {
       if (selectedSafeRegularTarget && regularFightAssessment.shouldBail) {
         return { label: regularFightAssessment.reason ?? "bail from stalled regular fight", command: "/stuck" };
       }
+      const canMeleeFinishTarget = Boolean(
+        selectedSafeRegularTarget &&
+          isMageRun &&
+          state.targetHp &&
+          state.targetHp.current <= 6 &&
+          this.hasAdjacent(state, ["M"])
+      );
+      if (canMeleeFinishTarget && hpRatio > safeTargetHealThreshold) {
+        const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
+        if (!attackReady) {
+          return { label: "wait to finish low-hp target", wait: true };
+        }
+        return { label: "finish low-hp target", key: "space" };
+      }
       if (canCastFireball && hpRatio > safeTargetHealThreshold) {
+        const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
+        if (!spellReady) {
+          return { label: "wait for spell cooldown", wait: true };
+        }
         return { label: "cast fireball", text: "f" };
       }
       if (isMageRun && run.mageNeedsManaRest && !questBossRun) {
@@ -2440,6 +2462,9 @@ class BotRunner {
         if (action.key === "space") {
           run.lastAttackAt = Date.now();
         }
+        if (action.text === "f") {
+          run.lastSpellAt = Date.now();
+        }
       }
     } catch (error) {
       this.logReconnect(run, `input paused: ${error instanceof Error ? error.message : String(error)}`);
@@ -2911,6 +2936,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "maxArmorUpgrade");
   setTuningNumber(tuning, source, "upgradeCostBaseGold");
   setTuningNumber(tuning, source, "attackCooldownMs");
+  setTuningNumber(tuning, source, "spellCooldownMs");
   setTuningNumber(tuning, source, "mageManaRestMs");
   setTuningNumber(tuning, source, "maxAdjacentRegularMobs");
   setTuningNumber(tuning, source, "targetHpResetBailCount");
@@ -3003,6 +3029,7 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
     maxArmorUpgrade: tuneInteger(overrides, "maxArmorUpgrade", "TUICRAFT_MAX_ARMOR_UPGRADE", 0, 20),
     upgradeCostBaseGold: tuneInteger(overrides, "upgradeCostBaseGold", "TUICRAFT_UPGRADE_COST_BASE_GOLD", 1, 10_000),
     attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 200, 10_000),
+    spellCooldownMs: tuneInteger(overrides, "spellCooldownMs", "TUICRAFT_SPELL_COOLDOWN_MS", 200, 10_000),
     mageManaRestMs: tuneInteger(overrides, "mageManaRestMs", "TUICRAFT_MAGE_MANA_REST_MS", 0, 120_000),
     maxAdjacentRegularMobs: tuneInteger(
       overrides,
