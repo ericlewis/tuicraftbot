@@ -597,6 +597,7 @@ type ParsedGameState = {
   hp?: { current: number; max: number };
   xp?: { current: number; max: number };
   gold?: number;
+  swingReady?: boolean;
   weaponUpgrade?: number;
   armorUpgrade?: number;
   weaponMissing: boolean;
@@ -1238,7 +1239,8 @@ class BotRunner {
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
       if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.safeTargetHealHpRatio) {
-        if (Date.now() - run.lastAttackAt < run.tuning.attackCooldownMs) {
+        const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
+        if (!attackReady) {
           const kiteStep = this.stepAwayFrom(state, ["M", "B"], { blockedChars: ["D"] });
           if (kiteStep) {
             return { label: "kite target during cooldown", key: kiteStep };
@@ -1717,6 +1719,7 @@ class BotRunner {
     const hpMatch = screen.text.match(/(?:Your\s+)?HP:\s*(\d+)\/(\d+)/);
     const xpMatch = screen.text.match(/XP:\s*(\d+)\/(\d+)/);
     const goldMatch = screen.text.match(/(?:GP|Gold):\s*(\d+)g/);
+    const swingMatch = screen.text.match(/Swing:\s*([^\n│]+)/);
     const weaponUpgradeMatch = screen.text.match(/Wpn:[^\n│]*\+(\d+)/) ?? screen.text.match(/Weapon:\s*\+(\d+)/);
     const armorUpgradeMatch = screen.text.match(/Arm:[^\n│]*\+(\d+)/) ?? screen.text.match(/Armor\s*:\s*\+(\d+)/);
     const weaponMissing = /\bWpn:\s*None\b/i.test(screen.text);
@@ -1757,6 +1760,7 @@ class BotRunner {
       hp: hpMatch ? { current: Number(hpMatch[1]), max: Number(hpMatch[2]) } : undefined,
       xp: xpMatch ? { current: Number(xpMatch[1]), max: Number(xpMatch[2]) } : undefined,
       gold: goldMatch ? Number(goldMatch[1]) : undefined,
+      swingReady: swingMatch ? /\bREADY\b/i.test(swingMatch[1]) : undefined,
       weaponUpgrade: weaponUpgradeMatch ? Number(weaponUpgradeMatch[1]) : undefined,
       armorUpgrade: armorUpgradeMatch ? Number(armorUpgradeMatch[1]) : undefined,
       weaponMissing,
