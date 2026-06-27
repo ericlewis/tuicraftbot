@@ -1372,13 +1372,6 @@ class BotRunner {
         return { label: regularFightAssessment.reason ?? "bail from stalled regular fight", command: "/stuck" };
       }
       if (canCastFireball && hpRatio > safeTargetHealThreshold) {
-        if (run.lastKnownMana) {
-          const nextMana = Math.max(0, run.lastKnownMana.current - 10);
-          run.lastKnownMana = { current: nextMana, max: run.lastKnownMana.max };
-          if (nextMana < 10) {
-            run.mageNeedsManaRest = true;
-          }
-        }
         return { label: "cast fireball", text: "f" };
       }
       if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > safeTargetHealThreshold) {
