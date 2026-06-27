@@ -1382,6 +1382,12 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
+      const manageableElite = Boolean(
+        state.targetIsEliteOrBoss &&
+          !state.targetIsBoss &&
+          state.targetLevel &&
+          state.targetLevel <= allowedTargetLevel
+      );
       const regularFightAssessment = this.assessRegularTargetFight(run, state);
       const isMageRun = state.className === "Mage" || run.characterClass === "mage";
       if (isMageRun && state.manaExhausted) {
@@ -1465,6 +1471,7 @@ class BotRunner {
       }
       if (
         preEliteFarming &&
+        !manageableElite &&
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossAvoidDistance
       ) {
@@ -1515,6 +1522,7 @@ class BotRunner {
       }
       const bossBlockingEntry = Boolean(
         !canFightQuestBoss &&
+          !manageableElite &&
           nearestBoss !== undefined &&
           nearestBoss <= run.tuning.earlyBossAvoidDistance &&
           (state.targetIsBoss || this.hasAdjacent(state, ["B"]))
@@ -1546,6 +1554,7 @@ class BotRunner {
       }
       if (
         preEliteFarming &&
+        !manageableElite &&
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossAvoidDistance
       ) {
@@ -1560,6 +1569,7 @@ class BotRunner {
       }
       if (
         !canFightQuestBoss &&
+        !manageableElite &&
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossContactDistance
       ) {
@@ -1575,13 +1585,13 @@ class BotRunner {
       if (this.nextMerchantCommand(state, run.tuning, run) && !canFightQuestBoss) {
         return { label: "bail to buy upgrade", command: "/stuck" };
       }
-      const manageableElite = Boolean(
-        state.targetIsEliteOrBoss &&
-          !state.targetIsBoss &&
-          state.targetLevel &&
-          state.targetLevel <= allowedTargetLevel
-      );
       if (manageableElite && hpRatio >= unsafeHealThreshold) {
+        if (isMageRun && hasSpellMana) {
+          if (!spellReady) {
+            return { label: "wait for elite spell cooldown", wait: true };
+          }
+          return { label: "cast fireball at elite", text: "f" };
+        }
         return { label: "chip elite target", key: "space" };
       }
       if (manageableElite) {
@@ -1745,6 +1755,8 @@ class BotRunner {
       action.label === "isolate pre-elite mob" ||
       action.label === "finish crowded target" ||
       action.label === "wait to finish crowded target" ||
+      action.label === "cast fireball at elite" ||
+      action.label === "wait for elite spell cooldown" ||
       action.label === "kite target during cooldown"
     ) {
       return false;
