@@ -1904,7 +1904,7 @@ class BotRunner {
     const targetLevelMatch = targetPanelText.match(/Level:\s*(\d+)/);
     const inTown = Boolean(mapName && /Town|Abbey/i.test(mapName));
     const inDungeon = Boolean(mapName && !/Town|Abbey/i.test(mapName));
-    const deathTextVisible = /You are dead|You have died/i.test(screen.text);
+    const deathTextVisible = /You are dead|You have died|YOU ARE DEFEATED|run out of Health|cannot attack while dead/i.test(screen.text);
     const grid: string[][] = [];
     const entities: GameEntity[] = [];
     let player: Point | undefined;
