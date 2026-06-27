@@ -1710,6 +1710,7 @@ class BotRunner {
       action.label === "bail from over-depth dungeon" ||
       action.label === "bail from multi-mob low-level fight" ||
       action.label === "bail from nearby boss before farming" ||
+      action.label === "bail from early boss contact" ||
       action.label === "bail to heal" ||
       action.label === "bail to restore mage mana" ||
       action.label === "lure boss away from low-level farm" ||
