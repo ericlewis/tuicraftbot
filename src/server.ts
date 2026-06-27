@@ -1772,13 +1772,13 @@ class BotRunner {
   }
 
   private savedPortalAction(run: BotRunState, state: ParsedGameState): BotAction {
-    if (run.questAccepted || state.questInProgress || state.level < 4) {
+    if ((run.questAccepted || state.questInProgress) && state.level >= 4) {
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
     if (state.maxDepth && state.maxDepth > 1 && state.level >= 2) {
       return { label: "enter saved dungeon depth", command: "/enter 2" };
     }
-    return { label: "enter saved dungeon portal", command: "/enter 2" };
+    return { label: "enter saved dungeon portal", command: "/enter 1" };
   }
 
   private canFightQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
