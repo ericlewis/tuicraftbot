@@ -700,6 +700,7 @@ type BotRunState = {
   chatMaxMessages: number;
   chatCooldownMs: number;
   nextChatAt: number;
+  lastChatSignature?: string;
   tuning: BotTuningConfig;
 };
 
@@ -847,6 +848,7 @@ class BotRunner {
         900_000
       ),
       nextChatAt: 0,
+      lastChatSignature: undefined,
       tuning
     };
 
@@ -1660,6 +1662,15 @@ class BotRunner {
 
   private nextChatReply(run: BotRunState, state: ParsedGameState): string | undefined {
     const chatText = state.text.match(/┌─ Chat Log[\s\S]*?└/)?.[0] ?? "";
+    const chatSignature = normalizeWhitespace(chatText);
+    if (!chatSignature || run.lastChatSignature === chatSignature) {
+      return undefined;
+    }
+    if (!run.lastChatSignature) {
+      run.lastChatSignature = chatSignature;
+      return undefined;
+    }
+    run.lastChatSignature = chatSignature;
     const addressed = new RegExp(`\\b(?:${escapeRegExp(run.characterName)}|codex)\\b`, "i").test(chatText);
     if (!addressed) {
       return undefined;
