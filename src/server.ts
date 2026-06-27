@@ -666,6 +666,7 @@ type BotRunState = {
   bossChipMoves: number;
   mageNeedsManaRest: boolean;
   mageManaRestUntil: number;
+  lastKnownMana?: { current: number; max: number };
   lastKnownGold?: number;
   lastKnownWeaponUpgrade?: number;
   lastKnownArmorUpgrade?: number;
@@ -798,6 +799,7 @@ class BotRunner {
       bossChipMoves: 0,
       mageNeedsManaRest: false,
       mageManaRestUntil: 0,
+      lastKnownMana: undefined,
       lastKnownGold: undefined,
       lastKnownWeaponUpgrade: undefined,
       lastKnownArmorUpgrade: undefined,
@@ -1201,6 +1203,10 @@ class BotRunner {
       run.bossChipMoves = 0;
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
       const readyForEliteQuest = state.level >= 3;
+      if (run.characterClass === "mage" && state.mana && state.mana.current >= 10) {
+        run.mageNeedsManaRest = false;
+        run.mageManaRestUntil = 0;
+      }
       if (state.hp && hpRatio < run.tuning.townHealHpRatio) {
         const healStep = this.stepToward(state, ["I"], "onto");
         if (healStep) {
@@ -1301,13 +1307,23 @@ class BotRunner {
       const isMageRun = state.className === "Mage" || run.characterClass === "mage";
       if (isMageRun && state.manaExhausted) {
         run.mageNeedsManaRest = true;
+        if (run.lastKnownMana) {
+          run.lastKnownMana = { current: 0, max: run.lastKnownMana.max };
+        }
       }
-      const hasSpellMana = state.mana ? state.mana.current >= 10 : !run.mageNeedsManaRest;
+      const knownMana = state.mana?.current ?? run.lastKnownMana?.current;
+      const hasSpellMana = knownMana === undefined ? !run.mageNeedsManaRest : knownMana >= 10;
       const canCastFireball = Boolean(
         selectedSafeRegularTarget && isMageRun && hasSpellMana
       );
       if (canCastFireball && hpRatio > run.tuning.safeTargetHealHpRatio) {
-        run.mageNeedsManaRest = true;
+        if (run.lastKnownMana) {
+          const nextMana = Math.max(0, run.lastKnownMana.current - 10);
+          run.lastKnownMana = { current: nextMana, max: run.lastKnownMana.max };
+          if (nextMana < 10) {
+            run.mageNeedsManaRest = true;
+          }
+        }
         return { label: "cast fireball", text: "f" };
       }
       if (
@@ -1923,6 +1939,9 @@ class BotRunner {
   }
 
   private rememberCharacterState(run: BotRunState, state: ParsedGameState): void {
+    if (state.mana !== undefined) {
+      run.lastKnownMana = state.mana;
+    }
     if (state.gold !== undefined) {
       run.lastKnownGold = state.gold;
     }
