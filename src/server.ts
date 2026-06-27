@@ -1249,7 +1249,12 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
-      if (state.level <= 1 && selectedSafeRegularTarget && /Orc Grunt/i.test(state.targetText ?? "")) {
+      if (
+        state.level <= 1 &&
+        selectedSafeRegularTarget &&
+        !this.hasAdjacent(state, ["M"]) &&
+        /Orc Grunt/i.test(state.targetText ?? "")
+      ) {
         const alternateMobStep = this.stepTowardDistantMob(state, 2, {
           blockedChars: ["D"],
           avoidAdjacentKinds: ["B"],
