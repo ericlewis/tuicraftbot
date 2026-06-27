@@ -1250,14 +1250,6 @@ class BotRunner {
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
       if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.safeTargetHealHpRatio) {
-        const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
-        if (!attackReady) {
-          const kiteStep = this.stepAwayFrom(state, ["M", "B"], { blockedChars: ["D"] });
-          if (kiteStep) {
-            return { label: "kite target during cooldown", key: kiteStep };
-          }
-          return { label: "wait for attack cooldown", wait: true };
-        }
         return { label: "attack selected regular", key: "space" };
       }
       const bossBlockingEntry = Boolean(
