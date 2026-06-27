@@ -653,6 +653,9 @@ type BotRunState = {
   starterArmorChecked: boolean;
   bossLureMoves: number;
   bossChipMoves: number;
+  lastKnownGold?: number;
+  lastKnownWeaponUpgrade?: number;
+  lastKnownArmorUpgrade?: number;
   lastStateSignature?: string;
   judgeEnabled: boolean;
   judgeConfigs: JudgeConfig[];
@@ -776,6 +779,9 @@ class BotRunner {
       starterArmorChecked: false,
       bossLureMoves: 0,
       bossChipMoves: 0,
+      lastKnownGold: undefined,
+      lastKnownWeaponUpgrade: undefined,
+      lastKnownArmorUpgrade: undefined,
       judgeEnabled,
       judgeConfigs,
       judgeMaxCalls: clampInteger(
@@ -1119,6 +1125,7 @@ class BotRunner {
 
   private nextWinAction(run: BotRunState, screen: ScreenSnapshot): BotAction | undefined {
     const state = this.parseGameState(screen);
+    this.rememberCharacterState(run, state);
     this.logWinState(run, state);
     if (!state.armorMissing) {
       run.starterArmorChecked = true;
@@ -1159,13 +1166,16 @@ class BotRunner {
         return { label: "open inventory to equip starter armor", command: "/inventory" };
       }
 
-      const merchantCommand = this.nextMerchantCommand(state, run.tuning);
+      const merchantCommand = this.nextMerchantCommand(state, run.tuning, run);
       if (merchantCommand) {
-        const merchantStep = this.stepToward(state, ["S"], "adjacent");
+        const merchantStep = this.isMerchantShopOpen(state) ? undefined : this.stepToward(state, ["S"], "adjacent");
         if (merchantStep) {
           return { label: "go to merchant", key: merchantStep };
         }
         return merchantCommand;
+      }
+      if (this.isMerchantShopOpen(state)) {
+        return { label: "close merchant shop", key: "escape" };
       }
 
       if (run.questComplete || state.questComplete) {
@@ -1287,7 +1297,7 @@ class BotRunner {
         }
         return { label: "bail from early boss contact", command: "/stuck" };
       }
-      if (this.nextMerchantCommand(state, run.tuning) && !canFightQuestBoss) {
+      if (this.nextMerchantCommand(state, run.tuning, run) && !canFightQuestBoss) {
         return { label: "bail to buy upgrade", command: "/stuck" };
       }
       const manageableElite = Boolean(
@@ -1790,14 +1800,30 @@ class BotRunner {
     });
   }
 
-  private nextMerchantCommand(state: ParsedGameState, tuning: BotTuningConfig): BotAction | undefined {
+  private rememberCharacterState(run: BotRunState, state: ParsedGameState): void {
+    if (state.gold !== undefined) {
+      run.lastKnownGold = state.gold;
+    }
+    if (state.weaponUpgrade !== undefined) {
+      run.lastKnownWeaponUpgrade = state.weaponUpgrade;
+    }
+    if (state.armorUpgrade !== undefined) {
+      run.lastKnownArmorUpgrade = state.armorUpgrade;
+    }
+  }
+
+  private nextMerchantCommand(
+    state: ParsedGameState,
+    tuning: BotTuningConfig,
+    run?: BotRunState
+  ): BotAction | undefined {
     if (state.sellableItemId) {
       return { label: "sell spare loot", command: `/sell ${state.sellableItemId}` };
     }
 
-    const gold = state.gold ?? 0;
-    const weaponUpgrade = state.weaponUpgrade ?? 0;
-    const armorUpgrade = state.armorUpgrade ?? 0;
+    const gold = state.gold ?? run?.lastKnownGold ?? 0;
+    const weaponUpgrade = state.weaponUpgrade ?? run?.lastKnownWeaponUpgrade ?? 0;
+    const armorUpgrade = state.armorUpgrade ?? run?.lastKnownArmorUpgrade ?? 0;
     const visibleWeaponCost = state.text.match(/Weapon:\s*\+\d+\s+\(Cost:\s*(\d+)g\)/i)?.[1];
     const visibleArmorCost = state.text.match(/Armor\s*:\s*\+\d+\s+\(Cost:\s*(\d+)g\)/i)?.[1];
     const weaponCost = visibleWeaponCost ? Number(visibleWeaponCost) : tuning.upgradeCostBaseGold * (weaponUpgrade + 1);
@@ -1810,6 +1836,10 @@ class BotRunner {
       return { label: "buy armor upgrade", command: "/buy 2" };
     }
     return undefined;
+  }
+
+  private isMerchantShopOpen(state: ParsedGameState): boolean {
+    return /---\s*Merchant Shop\s*---|Type\s+\/buy\s+\[1-3\]|Sellable Items:/i.test(state.text);
   }
 
   private hasAdjacent(state: ParsedGameState, kinds: string[]): boolean {
