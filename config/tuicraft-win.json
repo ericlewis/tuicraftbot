@@ -15,7 +15,7 @@
     "attackCooldownMs": 1800,
     "spellCooldownMs": 250,
     "mageMeleeFinishHp": 0,
-    "safeTargetHealHpRatio": 0.5,
+    "safeTargetHealHpRatio": 0.62,
     "lowLevelSafeTargetHealHpRatio": 0.58,
     "targetHpResetBailCount": 6,
     "regularFightTimeoutMs": 22000,
