@@ -1374,15 +1374,15 @@ class BotRunner {
       if (canCastFireball && hpRatio > safeTargetHealThreshold) {
         return { label: "cast fireball", text: "f" };
       }
+      if (isMageRun && run.mageNeedsManaRest && !questBossRun) {
+        return { label: "bail to restore mage mana", command: "/stuck" };
+      }
       if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > safeTargetHealThreshold) {
         const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
         if (!attackReady) {
           return { label: "wait for attack cooldown", wait: true };
         }
         return { label: "attack selected regular", key: "space" };
-      }
-      if (isMageRun && run.mageNeedsManaRest && !this.hasAdjacent(state, ["M"]) && !questBossRun) {
-        return { label: "bail to restore mage mana", command: "/stuck" };
       }
       const bossBlockingEntry = Boolean(
         !canFightQuestBoss &&
@@ -1612,6 +1612,7 @@ class BotRunner {
       action.label === "cast fireball" ||
       action.label === "bail from over-depth dungeon" ||
       action.label === "bail from multi-mob low-level fight" ||
+      action.label === "bail to restore mage mana" ||
       action.label === "target hp reset during regular fight" ||
       action.label === "regular target hp stalled" ||
       action.label === "seek non-orc starter mob" ||
