@@ -189,7 +189,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   earlyBossContactDistance: 1,
   maxWeaponUpgrade: 4,
   maxArmorUpgrade: 4,
-  upgradeCostBaseGold: 25,
+  upgradeCostBaseGold: 15,
   attackCooldownMs: 3_000
 };
 
