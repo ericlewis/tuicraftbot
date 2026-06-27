@@ -505,6 +505,7 @@ function parseScreenSummary(text: string): Record<string, unknown> {
     map: text.match(/\[Map:\s*([^\]]+)\]/)?.[1],
     character: text.match(/([A-Za-z][A-Za-z0-9_-]+)\s+Lvl\s+(\d+)\s+\(([^)]+)\)/)?.slice(1, 4),
     hp: text.match(/(?:Your\s+)?HP:\s*([0-9]+\/[0-9]+)/)?.[1],
+    mana: text.match(/\bMana:\s*([0-9]+\/[0-9]+)/)?.[1],
     xp: text.match(/\bXP:\s*([0-9]+\/[0-9]+)/)?.[1],
     gold: text.match(/\b(?:GP|Gold):\s*([0-9]+g?)/)?.[1],
     swing: text.match(/\bSwing:\s*([^\n│]+)/)?.[1]?.trim(),

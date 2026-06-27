@@ -596,9 +596,11 @@ type ParsedGameState = {
   mapName?: string;
   mapLevel?: number;
   maxDepth?: number;
+  className?: string;
   level: number;
   hp?: { current: number; max: number };
   xp?: { current: number; max: number };
+  mana?: { current: number; max: number };
   gold?: number;
   swingReady?: boolean;
   weaponUpgrade?: number;
@@ -1274,6 +1276,10 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
+      const canCastFireball = Boolean(selectedSafeRegularTarget && state.className === "Mage" && state.mana?.current);
+      if (canCastFireball && hpRatio > run.tuning.safeTargetHealHpRatio) {
+        return { label: "cast fireball", text: "f" };
+      }
       if (
         state.level <= 1 &&
         selectedSafeRegularTarget &&
@@ -1518,7 +1524,12 @@ class BotRunner {
     if (!state.inDungeon) {
       return false;
     }
-    if (action.wait || action.label === "attack selected regular" || action.label === "kite target during cooldown") {
+    if (
+      action.wait ||
+      action.label === "attack selected regular" ||
+      action.label === "cast fireball" ||
+      action.label === "kite target during cooldown"
+    ) {
       return false;
     }
     const label = action.label.toLowerCase();
@@ -1762,8 +1773,10 @@ class BotRunner {
     const levelMatch =
       characterText.match(/\bLvl\s+(\d+)\s+\((Warrior|Rogue|Mage)\)/) ??
       characterText.match(/\(Lvl\s+(\d+)\)/);
+    const className = levelMatch?.[2];
     const level = Number(levelMatch?.[1] ?? 1);
     const hpMatch = screen.text.match(/(?:Your\s+)?HP:\s*(\d+)\/(\d+)/);
+    const manaMatch = screen.text.match(/Mana:\s*(\d+)\/(\d+)/);
     const xpMatch = screen.text.match(/XP:\s*(\d+)\/(\d+)/);
     const goldMatch = screen.text.match(/(?:GP|Gold):\s*(\d+)g/);
     const swingMatch = screen.text.match(/Swing:\s*([^\n│]+)/);
@@ -1803,9 +1816,11 @@ class BotRunner {
       mapName,
       mapLevel: mapLevelMatch ? Number(mapLevelMatch[1]) : undefined,
       maxDepth: maxDepthMatch ? Number(maxDepthMatch[1]) : undefined,
+      className,
       level,
       hp: hpMatch ? { current: Number(hpMatch[1]), max: Number(hpMatch[2]) } : undefined,
       xp: xpMatch ? { current: Number(xpMatch[1]), max: Number(xpMatch[2]) } : undefined,
+      mana: manaMatch ? { current: Number(manaMatch[1]), max: Number(manaMatch[2]) } : undefined,
       gold: goldMatch ? Number(goldMatch[1]) : undefined,
       swingReady: swingMatch ? /\bREADY\b/i.test(swingMatch[1]) : undefined,
       weaponUpgrade: weaponUpgradeMatch ? Number(weaponUpgradeMatch[1]) : undefined,
