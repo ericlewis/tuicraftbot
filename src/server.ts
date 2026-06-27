@@ -958,6 +958,10 @@ class BotRunner {
     }
     if (/--- INVENTORY ---|Manage Inventory|Press ESC to close inventory/i.test(text)) {
       if (/--- ACTION ---/i.test(text) && /Item:\s*Tattered Cloth Robes/i.test(text)) {
+        if (/Tattered Cloth Robes[^\n]*\(Equipped\)/i.test(text)) {
+          run.starterArmorChecked = true;
+          return { label: "close equipped starter armor action", key: "escape" };
+        }
         if (/▶\s*Equip Item/i.test(text)) {
           return { label: "confirm starter armor equip", key: "enter" };
         }
