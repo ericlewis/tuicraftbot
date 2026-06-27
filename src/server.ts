@@ -1891,15 +1891,8 @@ class BotRunner {
     if ((run.questAccepted || state.questInProgress) && state.level >= 4) {
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
-    if (state.maxDepth && state.maxDepth > 1) {
-      const farmDepth = clampInteger(
-        state.level + 1 - run.tuning.goDeeperLevelMargin,
-        1,
-        state.maxDepth
-      );
-      if (farmDepth > 1) {
-        return { label: "enter scaled dungeon depth", command: `/enter ${farmDepth}` };
-      }
+    if (state.maxDepth && state.maxDepth > 1 && state.level >= 4) {
+      return { label: "enter saved dungeon depth", command: "/enter 2" };
     }
     return { label: "enter saved dungeon portal", command: "/enter 1" };
   }
