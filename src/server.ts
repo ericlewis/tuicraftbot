@@ -1340,7 +1340,7 @@ class BotRunner {
           run.lastKnownMana = { current: 0, max: run.lastKnownMana.max };
         }
       }
-      if (state.level <= 1 && selectedSafeRegularTarget && /Orc Grunt/i.test(state.targetText ?? "")) {
+      if (lowLevelFarming && selectedSafeRegularTarget && /Orc Grunt/i.test(state.targetText ?? "")) {
         const alternateMobStep = this.stepTowardDistantMob(state, 2, {
           blockedChars: ["D"],
           avoidAdjacentKinds: ["B"],
@@ -1621,6 +1621,7 @@ class BotRunner {
       action.label === "bail from multi-mob low-level fight" ||
       action.label === "target hp reset during regular fight" ||
       action.label === "regular target hp stalled" ||
+      action.label === "seek non-orc starter mob" ||
       action.label === "disengage orc starter mob" ||
       action.label === "isolate low-level mob" ||
       action.label === "kite target during cooldown"
