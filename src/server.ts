@@ -690,6 +690,8 @@ type BotRunState = {
   lastKnownGold?: number;
   lastKnownWeaponUpgrade?: number;
   lastKnownArmorUpgrade?: number;
+  lastMerchantCheckGold?: number;
+  nextMerchantCheckAt: number;
   regularTargetKey?: string;
   regularTargetLastHp?: number;
   regularTargetStartedAt: number;
@@ -830,6 +832,8 @@ class BotRunner {
       lastKnownGold: undefined,
       lastKnownWeaponUpgrade: undefined,
       lastKnownArmorUpgrade: undefined,
+      lastMerchantCheckGold: undefined,
+      nextMerchantCheckAt: 0,
       regularTargetKey: undefined,
       regularTargetLastHp: undefined,
       regularTargetStartedAt: 0,
@@ -1302,12 +1306,19 @@ class BotRunner {
       }
 
       const merchantCommand = this.nextMerchantCommand(state, run.tuning, run);
-      if (merchantCommand) {
+      const shouldCheckMerchant = !merchantCommand && this.shouldCheckMerchantPrices(run, state);
+      if (merchantCommand || shouldCheckMerchant) {
         const merchantStep = this.isMerchantShopOpen(state) ? undefined : this.stepToward(state, ["S"], "adjacent");
         if (merchantStep) {
-          return { label: "go to merchant", key: merchantStep };
+          if (shouldCheckMerchant) {
+            run.lastMerchantCheckGold = state.gold ?? run.lastKnownGold;
+            run.nextMerchantCheckAt = Date.now() + 120_000;
+          }
+          return { label: shouldCheckMerchant ? "check merchant upgrades" : "go to merchant", key: merchantStep };
         }
-        return merchantCommand;
+        if (merchantCommand) {
+          return merchantCommand;
+        }
       }
       if (this.isMerchantShopOpen(state)) {
         const awayStep = this.stepAwayFrom(state, ["S"]);
@@ -2202,6 +2213,25 @@ class BotRunner {
       return { label: "buy armor upgrade", command: "/buy 2" };
     }
     return undefined;
+  }
+
+  private shouldCheckMerchantPrices(run: BotRunState, state: ParsedGameState): boolean {
+    if (this.isMerchantShopOpen(state)) {
+      return false;
+    }
+    const gold = state.gold ?? run.lastKnownGold ?? 0;
+    if (gold < run.tuning.upgradeCostBaseGold) {
+      return false;
+    }
+    const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade ?? 0;
+    const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade ?? 0;
+    if (weaponUpgrade >= run.tuning.maxWeaponUpgrade && armorUpgrade >= run.tuning.maxArmorUpgrade) {
+      return false;
+    }
+    if (run.lastMerchantCheckGold === gold && Date.now() < run.nextMerchantCheckAt) {
+      return false;
+    }
+    return true;
   }
 
   private isMerchantShopOpen(state: ParsedGameState): boolean {
