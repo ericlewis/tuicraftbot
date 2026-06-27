@@ -181,6 +181,7 @@ server.registerTool(
       accountUsername: z.string().min(1).optional(),
       accountPassword: z.string().min(1).optional(),
       characterName: z.string().min(1).optional(),
+      characterClass: z.enum(["warrior", "rogue", "mage"]).optional(),
       worldSeed: z.string().min(1).optional()
     }
   },

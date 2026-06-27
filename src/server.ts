@@ -35,6 +35,7 @@ type ScreenSnapshot = {
 
 type BotMode = "smoke" | "explore" | "stress" | "win";
 type BotStatus = "idle" | "running" | "completed" | "stopped" | "error";
+type CharacterClass = "warrior" | "rogue" | "mage";
 
 type BotLog = {
   ts: string;
@@ -52,6 +53,7 @@ type BotRunOptions = {
   accountUsername?: string;
   accountPassword?: string;
   characterName?: string;
+  characterClass?: CharacterClass;
   worldSeed?: string;
   judgeEnabled?: boolean;
   judgeModels?: string;
@@ -98,6 +100,7 @@ type BotRunSummary = {
   lastActionAt?: string;
   accountUsername?: string;
   characterName?: string;
+  characterClass?: CharacterClass;
   worldSeed?: string;
   accountRegistered?: boolean;
   findings: string[];
@@ -636,6 +639,7 @@ type BotRunState = {
   accountUsername: string;
   accountPassword: string;
   characterName: string;
+  characterClass: CharacterClass;
   worldSeed: string;
   reuseExistingAccount: boolean;
   accountRegistered: boolean;
@@ -708,6 +712,7 @@ class BotRunner {
       lastActionAt: this.run.lastActionAt,
       accountUsername: this.run.accountUsername,
       characterName: this.run.characterName,
+      characterClass: this.run.characterClass,
       worldSeed: this.run.worldSeed,
       accountRegistered: this.run.accountRegistered ?? this.run.reuseExistingAccount,
       findings: [...this.run.findings],
@@ -741,6 +746,7 @@ class BotRunner {
     const requestedUsername = options.accountUsername?.trim();
     const requestedPassword = options.accountPassword?.trim();
     const requestedCharacter = options.characterName?.trim();
+    const requestedClass = options.characterClass ?? parseCharacterClass(process.env.BOT_CHARACTER_CLASS) ?? "warrior";
     const requestedWorldSeed = options.worldSeed?.trim() || process.env.BOT_WORLD_SEED?.trim();
     const reuseExistingAccount = Boolean(requestedUsername && requestedPassword);
     const judgeConfigs = parseJudgeConfigs(options.judgeModels ?? process.env.TUICRAFT_JUDGE_MODELS);
@@ -762,6 +768,7 @@ class BotRunner {
       accountUsername: requestedUsername || `codex${Date.now().toString(36).slice(-7)}${suffix.slice(0, 2)}`,
       accountPassword: requestedPassword || `codex-pass-${suffix}`,
       characterName: requestedCharacter || `Codex${suffix}`,
+      characterClass: requestedClass,
       worldSeed: requestedWorldSeed || "1",
       reuseExistingAccount,
       accountRegistered: reuseExistingAccount,
@@ -1002,11 +1009,9 @@ class BotRunner {
     }
     if (/Select a character/i.test(text)) {
       if (run.reuseExistingAccount || run.accountRegistered) {
-        const characterSlot = run.characterName
+        const slot = run.characterName
           ? text.match(new RegExp(`Type\\s+(\\d+)\\s+to\\s+load:\\s+${escapeRegExp(run.characterName)}\\b`, "i"))?.[1]
-          : undefined;
-        const firstSlot = text.match(/Type\s+(\d+)\s+to\s+load:/i)?.[1];
-        const slot = characterSlot ?? firstSlot;
+          : text.match(/Type\s+(\d+)\s+to\s+load:/i)?.[1];
         if (slot) {
           return { label: "load existing character", text: `${slot}\r` };
         }
@@ -1017,7 +1022,7 @@ class BotRunner {
       return { label: "create new character", text: "new\r" };
     }
     if (/Choose Character Class/i.test(text)) {
-      return { label: "choose warrior", text: "1\r" };
+      return { label: `choose ${run.characterClass}`, text: `${this.classChoice(text, run.characterClass)}\r` };
     }
     if (/Enter a name for your new character/i.test(text)) {
       return { label: "enter generated character", text: `${run.characterName}\r` };
@@ -1026,6 +1031,12 @@ class BotRunner {
       return { label: "recover registration choice", text: "2\r" };
     }
     return undefined;
+  }
+
+  private classChoice(text: string, characterClass: CharacterClass): string {
+    const classLabel = characterClass[0].toUpperCase() + characterClass.slice(1);
+    const menuChoice = text.match(new RegExp(`(?:^|\\n)[^\\n]*?(\\d+)[^\\n]*\\b${classLabel}\\b`, "i"))?.[1];
+    return menuChoice ?? ({ warrior: "1", rogue: "2", mage: "3" } satisfies Record<CharacterClass, string>)[characterClass];
   }
 
   private markAccountRegistered(run: BotRunState, reason: string): void {
@@ -2543,6 +2554,14 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function parseCharacterClass(value: unknown): CharacterClass | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "warrior" || normalized === "rogue" || normalized === "mage" ? normalized : undefined;
+}
+
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
@@ -2564,6 +2583,7 @@ function parseBotOptions(body: Record<string, unknown>): BotRunOptions {
     accountUsername: nonEmptyStringValue(body.accountUsername),
     accountPassword: nonEmptyStringValue(body.accountPassword),
     characterName: nonEmptyStringValue(body.characterName),
+    characterClass: parseCharacterClass(body.characterClass),
     worldSeed: nonEmptyStringValue(body.worldSeed),
     judgeEnabled: booleanValue(body.judgeEnabled),
     judgeModels: nonEmptyStringValue(body.judgeModels),
