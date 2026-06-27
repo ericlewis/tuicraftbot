@@ -655,6 +655,7 @@ type BotRunState = {
   lastAttackAt: number;
   questAccepted: boolean;
   questComplete: boolean;
+  starterWeaponChecked: boolean;
   starterArmorChecked: boolean;
   bossLureMoves: number;
   bossChipMoves: number;
@@ -784,6 +785,7 @@ class BotRunner {
       lastAttackAt: 0,
       questAccepted: false,
       questComplete: false,
+      starterWeaponChecked: false,
       starterArmorChecked: false,
       bossLureMoves: 0,
       bossChipMoves: 0,
@@ -965,6 +967,17 @@ class BotRunner {
       return { label: "dismiss modal", key: "space" };
     }
     if (/--- INVENTORY ---|Manage Inventory|Press ESC to close inventory/i.test(text)) {
+      if (/--- ACTION ---/i.test(text) && /Item:\s*Rusty Sword/i.test(text)) {
+        if (!/\bWpn:\s*None\b/i.test(text)) {
+          run.starterWeaponChecked = true;
+          return { label: "close equipped starter weapon action", key: "escape" };
+        }
+        if (/▶\s*Equip Item/i.test(text)) {
+          return { label: "confirm starter weapon equip", key: "enter" };
+        }
+        run.starterWeaponChecked = true;
+        return { label: "close starter weapon action", key: "escape" };
+      }
       if (/--- ACTION ---/i.test(text) && /Item:\s*Tattered Cloth Robes/i.test(text)) {
         if (!/\bArm:\s*None\b/i.test(text)) {
           run.starterArmorChecked = true;
@@ -975,6 +988,12 @@ class BotRunner {
         }
         run.starterArmorChecked = true;
         return { label: "close starter armor action", key: "escape" };
+      }
+      if (/Rusty Sword/i.test(text) && !/Rusty Sword[^\n]*\(Equipped\)/i.test(text)) {
+        if (/▶\s*Rusty Sword/i.test(text)) {
+          return { label: "equip starter weapon", text: "e" };
+        }
+        return { label: "select starter weapon", text: "w" };
       }
       if (/Tattered Cloth Robes/i.test(text) && !/Tattered Cloth Robes[^\n]*\(Equipped\)/i.test(text)) {
         if (/▶\s*Tattered Cloth Robes/i.test(text)) {
@@ -1143,6 +1162,9 @@ class BotRunner {
     const state = this.parseGameState(screen);
     this.rememberCharacterState(run, state);
     this.logWinState(run, state);
+    if (!state.weaponMissing) {
+      run.starterWeaponChecked = true;
+    }
     if (!state.armorMissing) {
       run.starterArmorChecked = true;
     }
@@ -1180,6 +1202,9 @@ class BotRunner {
 
       if (state.armorMissing && !run.starterArmorChecked) {
         return { label: "open inventory to equip starter armor", command: "/inventory" };
+      }
+      if (state.weaponMissing && !run.starterWeaponChecked) {
+        return { label: "open inventory to equip starter weapon", command: "/inventory" };
       }
 
       const merchantCommand = this.nextMerchantCommand(state, run.tuning, run);
