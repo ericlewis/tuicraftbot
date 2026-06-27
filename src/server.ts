@@ -1469,7 +1469,7 @@ class BotRunner {
     if (!state.inDungeon) {
       return false;
     }
-    if (action.wait || action.label === "attack selected regular") {
+    if (action.wait || action.label === "attack selected regular" || action.label === "kite target during cooldown") {
       return false;
     }
     const label = action.label.toLowerCase();
