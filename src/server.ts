@@ -1276,7 +1276,10 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
-      const canCastFireball = Boolean(selectedSafeRegularTarget && state.className === "Mage" && state.mana?.current);
+      const isMageRun = state.className === "Mage" || run.characterClass === "mage";
+      const canCastFireball = Boolean(
+        selectedSafeRegularTarget && isMageRun && (state.mana === undefined || state.mana.current > 0)
+      );
       if (canCastFireball && hpRatio > run.tuning.safeTargetHealHpRatio) {
         return { label: "cast fireball", text: "f" };
       }
@@ -1849,10 +1852,13 @@ class BotRunner {
   private logWinState(run: BotRunState, state: ParsedGameState): void {
     const hp = state.hp ? `${state.hp.current}/${state.hp.max}` : "";
     const xp = state.xp ? `${state.xp.current}/${state.xp.max}` : "";
+    const mana = state.mana ? `${state.mana.current}/${state.mana.max}` : "";
     const signature = [
       state.mapName ?? "",
+      state.className ?? "",
       state.level,
       hp,
+      mana,
       xp,
       state.gold ?? "",
       state.targetLevel ?? "",
@@ -1865,8 +1871,10 @@ class BotRunner {
     run.lastStateSignature = signature;
     this.log("info", "state changed", {
       map: state.mapName,
+      className: state.className,
       level: state.level,
       hp,
+      mana,
       xp,
       gold: state.gold,
       targetLevel: state.targetLevel,
