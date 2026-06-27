@@ -1239,6 +1239,10 @@ class BotRunner {
       );
       if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.safeTargetHealHpRatio) {
         if (Date.now() - run.lastAttackAt < run.tuning.attackCooldownMs) {
+          const kiteStep = this.stepAwayFrom(state, ["M", "B"], { blockedChars: ["D"] });
+          if (kiteStep) {
+            return { label: "kite target during cooldown", key: kiteStep };
+          }
           return { label: "wait for attack cooldown", wait: true };
         }
         return { label: "attack selected regular", key: "space" };
