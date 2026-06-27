@@ -1220,7 +1220,7 @@ class BotRunner {
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
       if (
-        (selectedSafeRegularTarget || this.hasAdjacent(state, ["M"])) &&
+        this.hasAdjacent(state, ["M"]) &&
         !state.targetIsEliteOrBoss &&
         hpRatio > run.tuning.safeTargetHealHpRatio
       ) {
