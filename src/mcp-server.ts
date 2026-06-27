@@ -164,6 +164,7 @@ server.registerTool(
           questBossEngagedRetreatHpRatio: z.number().min(0).max(1).optional(),
           questBossMinFightHpRatio: z.number().min(0).max(1).optional(),
           safeTargetHealHpRatio: z.number().min(0).max(1).optional(),
+          lowLevelSafeTargetHealHpRatio: z.number().min(0).max(1).optional(),
           unsafeTargetHealHpRatio: z.number().min(0).max(1).optional(),
           goDeeperHpRatio: z.number().min(0).max(1).optional(),
           judgeBossHpRatio: z.number().min(0).max(1).optional(),
@@ -176,7 +177,10 @@ server.registerTool(
           maxArmorUpgrade: z.number().int().min(0).max(20).optional(),
           upgradeCostBaseGold: z.number().int().min(1).max(10000).optional(),
           attackCooldownMs: z.number().int().min(500).max(10000).optional(),
-          mageManaRestMs: z.number().int().min(0).max(120000).optional()
+          mageManaRestMs: z.number().int().min(0).max(120000).optional(),
+          maxAdjacentRegularMobs: z.number().int().min(1).max(8).optional(),
+          targetHpResetBailCount: z.number().int().min(1).max(10).optional(),
+          regularFightTimeoutMs: z.number().int().min(5000).max(300000).optional()
         })
         .optional(),
       accountUsername: z.string().min(1).optional(),
@@ -502,6 +506,7 @@ type ScreenSnapshot = {
 };
 
 function parseScreenSummary(text: string): Record<string, unknown> {
+  const targetPanel = text.match(/--- Target ---([\s\S]*?)(?:--- Legend ---|Nearby:|┌─ Combat Log|$)/)?.[1] ?? "";
   return {
     map: text.match(/\[Map:\s*([^\]]+)\]/)?.[1],
     character: text.match(/([A-Za-z][A-Za-z0-9_-]+)\s+Lvl\s+(\d+)\s+\(([^)]+)\)/)?.slice(1, 4),
@@ -513,6 +518,10 @@ function parseScreenSummary(text: string): Record<string, unknown> {
     weapon: text.match(/\bWpn:\s*([^\n│]+)/)?.[1]?.trim(),
     armor: text.match(/\bArm:\s*([^\n│]+)/)?.[1]?.trim(),
     quest: text.match(/\bQuest:\s*([^\n│]+)/)?.[1]?.trim(),
+    target: targetPanel.match(/([A-Za-z][A-Za-z0-9 ':-]*?\s+\(Lvl\s+\d+\)[^\n│]*)/)?.[1]?.trim(),
+    targetHp:
+      targetPanel.match(/\bHP:\s*([0-9]+\/[0-9]+)/i)?.[1] ??
+      targetPanel.match(/\b([0-9]+\/[0-9]+)\s*\[[█░#=-]+/)?.[1],
     bossHp: text.match(/Shadow Overlord\s+\(BOSS Lvl 4\)\s+\((\d+)hp\)/)?.[1],
     findings: [...new Set(text.match(/\[object Object\]|\bundefined\b|\bNaN\b/g) ?? [])]
   };

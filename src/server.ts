@@ -71,6 +71,7 @@ type BotTuningConfig = {
   questBossEngagedRetreatHpRatio: number;
   questBossMinFightHpRatio: number;
   safeTargetHealHpRatio: number;
+  lowLevelSafeTargetHealHpRatio: number;
   unsafeTargetHealHpRatio: number;
   goDeeperHpRatio: number;
   judgeBossHpRatio: number;
@@ -84,6 +85,9 @@ type BotTuningConfig = {
   upgradeCostBaseGold: number;
   attackCooldownMs: number;
   mageManaRestMs: number;
+  maxAdjacentRegularMobs: number;
+  targetHpResetBailCount: number;
+  regularFightTimeoutMs: number;
 };
 
 type BotRunSummary = {
@@ -183,6 +187,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   questBossEngagedRetreatHpRatio: 0.25,
   questBossMinFightHpRatio: 0.3,
   safeTargetHealHpRatio: 0.35,
+  lowLevelSafeTargetHealHpRatio: 0.65,
   unsafeTargetHealHpRatio: 0.55,
   goDeeperHpRatio: 0.85,
   judgeBossHpRatio: 0.35,
@@ -195,7 +200,10 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   maxArmorUpgrade: 4,
   upgradeCostBaseGold: 100,
   attackCooldownMs: 3_000,
-  mageManaRestMs: 15_000
+  mageManaRestMs: 15_000,
+  maxAdjacentRegularMobs: 1,
+  targetHpResetBailCount: 1,
+  regularFightTimeoutMs: 45_000
 };
 
 class GameBridge {
@@ -610,10 +618,13 @@ type ParsedGameState = {
   weaponMissing: boolean;
   armorMissing: boolean;
   sellableItemId?: number;
+  targetName?: string;
+  targetHp?: { current: number; max: number };
   targetLevel?: number;
   targetIsEliteOrBoss: boolean;
   targetIsBoss: boolean;
   targetText?: string;
+  adjacentMobCount: number;
   inTown: boolean;
   inDungeon: boolean;
   player?: Point;
@@ -670,6 +681,11 @@ type BotRunState = {
   lastKnownGold?: number;
   lastKnownWeaponUpgrade?: number;
   lastKnownArmorUpgrade?: number;
+  regularTargetKey?: string;
+  regularTargetLastHp?: number;
+  regularTargetStartedAt: number;
+  regularTargetLastProgressAt: number;
+  regularTargetHpResets: number;
   lastStateSignature?: string;
   judgeEnabled: boolean;
   judgeConfigs: JudgeConfig[];
@@ -803,6 +819,11 @@ class BotRunner {
       lastKnownGold: undefined,
       lastKnownWeaponUpgrade: undefined,
       lastKnownArmorUpgrade: undefined,
+      regularTargetKey: undefined,
+      regularTargetLastHp: undefined,
+      regularTargetStartedAt: 0,
+      regularTargetLastProgressAt: 0,
+      regularTargetHpResets: 0,
       judgeEnabled,
       judgeConfigs,
       judgeMaxCalls: clampInteger(
@@ -1188,6 +1209,7 @@ class BotRunner {
     }
 
     if (state.dead) {
+      this.resetRegularTargetFight(run);
       return { label: "recover from death", command: "/stuck" };
     }
 
@@ -1199,6 +1221,7 @@ class BotRunner {
     }
 
     if (state.inTown) {
+      this.resetRegularTargetFight(run);
       run.bossLureMoves = 0;
       run.bossChipMoves = 0;
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
@@ -1297,6 +1320,9 @@ class BotRunner {
       const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
       const lowLevelFarming = state.level < 3 && !questBossRun;
       const lowLevelHealFloor = lowLevelFarming ? 0.7 : 0;
+      const safeTargetHealThreshold = lowLevelFarming
+        ? Math.max(run.tuning.safeTargetHealHpRatio, run.tuning.lowLevelSafeTargetHealHpRatio)
+        : run.tuning.safeTargetHealHpRatio;
       const unsafeHealThreshold = Math.max(run.tuning.unsafeTargetHealHpRatio, lowLevelHealFloor);
       if (!questBossRun && state.mapLevel && state.mapLevel > allowedTargetLevel) {
         return { label: "bail from over-depth dungeon", command: "/stuck" };
@@ -1304,6 +1330,7 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
+      const regularFightAssessment = this.assessRegularTargetFight(run, state);
       const isMageRun = state.className === "Mage" || run.characterClass === "mage";
       if (isMageRun && state.manaExhausted) {
         run.mageNeedsManaRest = true;
@@ -1332,7 +1359,17 @@ class BotRunner {
       const canCastFireball = Boolean(
         selectedSafeRegularTarget && isMageRun && hasSpellMana
       );
-      if (canCastFireball && hpRatio > run.tuning.safeTargetHealHpRatio) {
+      if (lowLevelFarming && state.adjacentMobCount > run.tuning.maxAdjacentRegularMobs) {
+        const awayStep = this.stepAwayFrom(state, ["M"], { blockedChars: ["D"] });
+        if (awayStep) {
+          return { label: "isolate low-level mob", key: awayStep };
+        }
+        return { label: "bail from multi-mob low-level fight", command: "/stuck" };
+      }
+      if (selectedSafeRegularTarget && regularFightAssessment.shouldBail) {
+        return { label: regularFightAssessment.reason ?? "bail from stalled regular fight", command: "/stuck" };
+      }
+      if (canCastFireball && hpRatio > safeTargetHealThreshold) {
         if (run.lastKnownMana) {
           const nextMana = Math.max(0, run.lastKnownMana.current - 10);
           run.lastKnownMana = { current: nextMana, max: run.lastKnownMana.max };
@@ -1342,7 +1379,7 @@ class BotRunner {
         }
         return { label: "cast fireball", text: "f" };
       }
-      if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > run.tuning.safeTargetHealHpRatio) {
+      if (selectedSafeRegularTarget && this.hasAdjacent(state, ["M"]) && hpRatio > safeTargetHealThreshold) {
         const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
         if (!attackReady) {
           return { label: "wait for attack cooldown", wait: true };
@@ -1451,7 +1488,7 @@ class BotRunner {
       }
       const hasSafeTarget = selectedSafeRegularTarget;
       const healThreshold = hasSafeTarget
-        ? run.tuning.safeTargetHealHpRatio
+        ? safeTargetHealThreshold
         : Math.max(run.tuning.unsafeTargetHealHpRatio, lowLevelHealFloor);
       if (hpRatio < healThreshold) {
         return { label: "bail to heal", command: "/stuck" };
@@ -1578,6 +1615,12 @@ class BotRunner {
       action.wait ||
       action.label === "attack selected regular" ||
       action.label === "cast fireball" ||
+      action.label === "bail from over-depth dungeon" ||
+      action.label === "bail from multi-mob low-level fight" ||
+      action.label === "target hp reset during regular fight" ||
+      action.label === "regular target hp stalled" ||
+      action.label === "disengage orc starter mob" ||
+      action.label === "isolate low-level mob" ||
       action.label === "kite target during cooldown"
     ) {
       return false;
@@ -1775,7 +1818,7 @@ class BotRunner {
     if ((run.questAccepted || state.questInProgress) && state.level >= 4) {
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
-    if (state.maxDepth && state.maxDepth > 1 && state.level >= 2) {
+    if (state.maxDepth && state.maxDepth > 1 && state.level >= 4) {
       return { label: "enter saved dungeon depth", command: "/enter 2" };
     }
     return { label: "enter saved dungeon portal", command: "/enter 1" };
@@ -1842,6 +1885,10 @@ class BotRunner {
     const armorMissing = /\bArm:\s*None\b/i.test(screen.text);
     const sellableItemMatch = /Sellable Items:/i.test(screen.text) ? screen.text.match(/\[(\d+)\]\s+[^\n│]+?\(\+?\d+g\)/) : undefined;
     const targetPanelText = screen.text.match(/--- Target ---([\s\S]*?)(?:--- Legend ---|Nearby:|┌─ Combat Log|$)/)?.[1] ?? "";
+    const targetNameMatch = targetPanelText.match(/([A-Za-z][A-Za-z0-9 ':-]*?)\s+\(Lvl\s+\d+\)/);
+    const targetHpMatch =
+      targetPanelText.match(/\bHP:\s*(\d+)\/(\d+)/i) ??
+      targetPanelText.match(/\b(\d+)\/(\d+)\s*\[[█░#=-]+/);
     const targetLevelMatch = targetPanelText.match(/Level:\s*(\d+)/);
     const inTown = Boolean(mapName && /Town|Abbey/i.test(mapName));
     const inDungeon = Boolean(mapName && !/Town|Abbey/i.test(mapName));
@@ -1867,6 +1914,9 @@ class BotRunner {
         }
       }
     }
+    const adjacentMobCount = player
+      ? entities.filter((entity) => entity.kind === "M" && manhattan(player, entity) === 1).length
+      : 0;
 
     return {
       mapName,
@@ -1884,10 +1934,15 @@ class BotRunner {
       weaponMissing,
       armorMissing,
       sellableItemId: sellableItemMatch ? Number(sellableItemMatch[1]) : undefined,
+      targetName: targetNameMatch?.[1]?.trim(),
+      targetHp: targetHpMatch
+        ? { current: Number(targetHpMatch[1]), max: Number(targetHpMatch[2]) }
+        : undefined,
       targetLevel: targetLevelMatch ? Number(targetLevelMatch[1]) : undefined,
       targetIsEliteOrBoss: /elite|boss|\*/i.test(targetPanelText),
       targetIsBoss: /boss|Shadow Overlord/i.test(targetPanelText),
       targetText: targetPanelText ? normalizeWhitespace(targetPanelText).slice(0, 160) : undefined,
+      adjacentMobCount,
       inTown,
       inDungeon,
       player,
@@ -1907,6 +1962,7 @@ class BotRunner {
     const hp = state.hp ? `${state.hp.current}/${state.hp.max}` : "";
     const xp = state.xp ? `${state.xp.current}/${state.xp.max}` : "";
     const mana = state.mana ? `${state.mana.current}/${state.mana.max}` : "";
+    const targetHp = state.targetHp ? `${state.targetHp.current}/${state.targetHp.max}` : "";
     const signature = [
       state.mapName ?? "",
       state.className ?? "",
@@ -1916,6 +1972,8 @@ class BotRunner {
       xp,
       state.gold ?? "",
       state.targetLevel ?? "",
+      targetHp,
+      state.adjacentMobCount,
       state.targetIsEliteOrBoss ? "elite-boss" : "",
       state.manaExhausted ? "mana-empty" : "",
       state.dead ? "dead" : ""
@@ -1933,6 +1991,8 @@ class BotRunner {
       xp,
       gold: state.gold,
       targetLevel: state.targetLevel,
+      targetHp,
+      adjacentMobCount: state.adjacentMobCount,
       targetIsEliteOrBoss: state.targetIsEliteOrBoss,
       manaExhausted: state.manaExhausted,
       target: state.targetText
@@ -1952,6 +2012,63 @@ class BotRunner {
     if (state.armorUpgrade !== undefined) {
       run.lastKnownArmorUpgrade = state.armorUpgrade;
     }
+  }
+
+  private assessRegularTargetFight(run: BotRunState, state: ParsedGameState): { shouldBail: boolean; reason?: string } {
+    if (!state.inDungeon || state.targetIsEliteOrBoss || !state.targetLevel || !state.targetHp) {
+      this.resetRegularTargetFight(run);
+      return { shouldBail: false };
+    }
+
+    const now = Date.now();
+    const targetKey = [
+      state.targetName ?? "regular",
+      state.targetLevel,
+      state.targetHp.max
+    ].join(":");
+
+    if (run.regularTargetKey !== targetKey) {
+      run.regularTargetKey = targetKey;
+      run.regularTargetLastHp = state.targetHp.current;
+      run.regularTargetStartedAt = now;
+      run.regularTargetLastProgressAt = now;
+      run.regularTargetHpResets = 0;
+      return { shouldBail: false };
+    }
+
+    const lastHp = run.regularTargetLastHp;
+    if (lastHp === undefined) {
+      run.regularTargetLastHp = state.targetHp.current;
+      run.regularTargetStartedAt = run.regularTargetStartedAt || now;
+      run.regularTargetLastProgressAt = run.regularTargetLastProgressAt || now;
+      return { shouldBail: false };
+    }
+
+    if (state.targetHp.current < lastHp) {
+      run.regularTargetLastHp = state.targetHp.current;
+      run.regularTargetLastProgressAt = now;
+    } else if (state.targetHp.current > lastHp + Math.max(2, Math.ceil(state.targetHp.max * 0.25))) {
+      run.regularTargetHpResets += 1;
+      run.regularTargetLastHp = state.targetHp.current;
+      run.regularTargetStartedAt = now;
+      run.regularTargetLastProgressAt = now;
+    }
+
+    if (run.regularTargetHpResets >= run.tuning.targetHpResetBailCount) {
+      return { shouldBail: true, reason: "target hp reset during regular fight" };
+    }
+    if (now - (run.regularTargetLastProgressAt || now) > run.tuning.regularFightTimeoutMs) {
+      return { shouldBail: true, reason: "regular target hp stalled" };
+    }
+    return { shouldBail: false };
+  }
+
+  private resetRegularTargetFight(run: BotRunState): void {
+    run.regularTargetKey = undefined;
+    run.regularTargetLastHp = undefined;
+    run.regularTargetStartedAt = 0;
+    run.regularTargetLastProgressAt = 0;
+    run.regularTargetHpResets = 0;
   }
 
   private nextMerchantCommand(
@@ -2739,6 +2856,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "questBossEngagedRetreatHpRatio");
   setTuningNumber(tuning, source, "questBossMinFightHpRatio");
   setTuningNumber(tuning, source, "safeTargetHealHpRatio");
+  setTuningNumber(tuning, source, "lowLevelSafeTargetHealHpRatio");
   setTuningNumber(tuning, source, "unsafeTargetHealHpRatio");
   setTuningNumber(tuning, source, "goDeeperHpRatio");
   setTuningNumber(tuning, source, "judgeBossHpRatio");
@@ -2752,6 +2870,9 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "upgradeCostBaseGold");
   setTuningNumber(tuning, source, "attackCooldownMs");
   setTuningNumber(tuning, source, "mageManaRestMs");
+  setTuningNumber(tuning, source, "maxAdjacentRegularMobs");
+  setTuningNumber(tuning, source, "targetHpResetBailCount");
+  setTuningNumber(tuning, source, "regularFightTimeoutMs");
   return Object.keys(tuning).length > 0 ? tuning : undefined;
 }
 
@@ -2791,6 +2912,13 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       1
     ),
     safeTargetHealHpRatio: tuneNumber(overrides, "safeTargetHealHpRatio", "TUICRAFT_SAFE_TARGET_HEAL_HP_RATIO", 0, 1),
+    lowLevelSafeTargetHealHpRatio: tuneNumber(
+      overrides,
+      "lowLevelSafeTargetHealHpRatio",
+      "TUICRAFT_LOW_LEVEL_SAFE_TARGET_HEAL_HP_RATIO",
+      0,
+      1
+    ),
     unsafeTargetHealHpRatio: tuneNumber(
       overrides,
       "unsafeTargetHealHpRatio",
@@ -2833,7 +2961,28 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
     maxArmorUpgrade: tuneInteger(overrides, "maxArmorUpgrade", "TUICRAFT_MAX_ARMOR_UPGRADE", 0, 20),
     upgradeCostBaseGold: tuneInteger(overrides, "upgradeCostBaseGold", "TUICRAFT_UPGRADE_COST_BASE_GOLD", 1, 10_000),
     attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 500, 10_000),
-    mageManaRestMs: tuneInteger(overrides, "mageManaRestMs", "TUICRAFT_MAGE_MANA_REST_MS", 0, 120_000)
+    mageManaRestMs: tuneInteger(overrides, "mageManaRestMs", "TUICRAFT_MAGE_MANA_REST_MS", 0, 120_000),
+    maxAdjacentRegularMobs: tuneInteger(
+      overrides,
+      "maxAdjacentRegularMobs",
+      "TUICRAFT_MAX_ADJACENT_REGULAR_MOBS",
+      1,
+      8
+    ),
+    targetHpResetBailCount: tuneInteger(
+      overrides,
+      "targetHpResetBailCount",
+      "TUICRAFT_TARGET_HP_RESET_BAIL_COUNT",
+      1,
+      10
+    ),
+    regularFightTimeoutMs: tuneInteger(
+      overrides,
+      "regularFightTimeoutMs",
+      "TUICRAFT_REGULAR_FIGHT_TIMEOUT_MS",
+      5_000,
+      300_000
+    )
   };
 }
 
@@ -2899,11 +3048,14 @@ function buildJudgePayload(
     state.targetIsEliteOrBoss ||
     Boolean(nearestBossDistance !== undefined && nearestBossDistance <= tuning.earlyBossContactDistance);
   const gearReady = !state.weaponMissing && !state.armorMissing;
+  const lowLevelSafeTargetHealHpRatio =
+    state.level < 3 ? Math.max(tuning.safeTargetHealHpRatio, tuning.lowLevelSafeTargetHealHpRatio) : tuning.safeTargetHealHpRatio;
   const safeMobFarming =
     state.inDungeon &&
     !bossThreatening &&
     state.entities.some((entity) => entity.kind === "M") &&
-    (hpRatio ?? 1) > tuning.safeTargetHealHpRatio;
+    state.adjacentMobCount <= tuning.maxAdjacentRegularMobs &&
+    (hpRatio ?? 1) > lowLevelSafeTargetHealHpRatio;
   const bossEligible =
     acceptedEliteQuest &&
     !state.questComplete &&
@@ -2920,8 +3072,10 @@ function buildJudgePayload(
       "If noActiveQuest is true, do not hunt Shadow Overlord unless a new Elite Slayer quest has been accepted.",
       "Treat weaponMissing or armorMissing as a boss-blocking gear problem; prefer gear repair or town actions when candidates allow it.",
       "Missing armor alone is not a retreat reason for full-health level-appropriate mob farming, especially at level 1.",
+      `At levels below 3, treat ${tuning.lowLevelSafeTargetHealHpRatio} as the regular-fight HP floor and avoid more than ${tuning.maxAdjacentRegularMobs} adjacent regular mob.`,
+      "If the visible regular target HP resets upward or stalls, prefer a reset/heal path over repeatedly attacking the same situation.",
       `Prefer boss progress only when bossEligible is true and HP is above ${tuning.questBossMinFightHpRatio}.`,
-      `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, the target is over-level, a boss is adjacent/targeted, or no safe progress candidate exists.`,
+      `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, below the low-level regular-fight floor, the target is over-level, a boss is adjacent/targeted, multiple mobs are adjacent, target HP has reset/stalled, or no safe progress candidate exists.`,
       "A distant visible boss is not a retreat reason when safeMobFarming is true.",
       "Do not choose regular mob farming over a visible boss when bossEligible is true, unless HP is below the configured boss threshold.",
       "Do not invent commands or choose an action outside the candidate list."
@@ -2941,7 +3095,11 @@ function buildJudgePayload(
         questBossEngagedRetreatHpRatio: tuning.questBossEngagedRetreatHpRatio,
         questBossMinFightHpRatio: tuning.questBossMinFightHpRatio,
         safeTargetHealHpRatio: tuning.safeTargetHealHpRatio,
-        unsafeTargetHealHpRatio: tuning.unsafeTargetHealHpRatio
+        lowLevelSafeTargetHealHpRatio: tuning.lowLevelSafeTargetHealHpRatio,
+        unsafeTargetHealHpRatio: tuning.unsafeTargetHealHpRatio,
+        maxAdjacentRegularMobs: tuning.maxAdjacentRegularMobs,
+        targetHpResetBailCount: tuning.targetHpResetBailCount,
+        regularFightTimeoutMs: tuning.regularFightTimeoutMs
       }
     },
     state: {
@@ -2960,7 +3118,10 @@ function buildJudgePayload(
       questInProgress: state.questInProgress,
       questComplete: state.questComplete,
       noActiveQuest: state.noActiveQuest,
+      adjacentMobCount: state.adjacentMobCount,
+      targetName: state.targetName,
       targetLevel: state.targetLevel,
+      targetHp: state.targetHp,
       targetIsEliteOrBoss: state.targetIsEliteOrBoss,
       targetText: state.targetText,
       entityCounts: {
