@@ -2080,7 +2080,7 @@ class BotRunner {
       } else if (action.command) {
         await this.sendCommand(run, action.command);
       } else {
-        if (action.key && ["w", "a", "s", "d", "space", "enter"].includes(action.key)) {
+        if (action.key && ["w", "a", "s", "d", "enter"].includes(action.key)) {
           this.bridge.sendInput({ key: "escape", source: `bot:${run.mode}` });
           await sleep(60);
         }
