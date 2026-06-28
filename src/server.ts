@@ -1462,7 +1462,7 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
-      const farmableSavedDepthBoss = Boolean(
+      const savedDepthBossTarget = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
           state.mapName &&
@@ -1475,7 +1475,7 @@ class BotRunner {
       );
       const manageableElite = Boolean(
         state.targetIsEliteOrBoss &&
-          (!state.targetIsBoss || farmableSavedDepthBoss) &&
+          !state.targetIsBoss &&
           state.targetLevel &&
           state.targetLevel <= allowedTargetLevel
       );
@@ -1769,6 +1769,21 @@ class BotRunner {
       if (manageableElite) {
         return { label: "bail to heal after elite chip", command: "/stuck" };
       }
+      if (savedDepthBossTarget) {
+        const mobStep = this.stepToward(state, ["M"], "onto", {
+          blockedChars: ["D"],
+          avoidAdjacentKinds: ["B"],
+          avoidRadius: 3
+        });
+        if (mobStep) {
+          return { label: "seek saved-depth mob", key: mobStep };
+        }
+        const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+        if (awayStep && hpRatio > 0.45) {
+          return { label: "evade saved-depth boss target", key: awayStep };
+        }
+        return { label: "bail from saved-depth boss target", command: "/stuck" };
+      }
       const eliteTooStrong = Boolean(
         state.targetIsEliteOrBoss &&
           !canFightQuestBoss &&
@@ -1943,6 +1958,9 @@ class BotRunner {
       action.label === "lure boss away from low-level farm" ||
       action.label === "target hp reset during regular fight" ||
       action.label === "regular target hp stalled" ||
+      action.label === "seek saved-depth mob" ||
+      action.label === "evade saved-depth boss target" ||
+      action.label === "bail from saved-depth boss target" ||
       action.label === "seek non-orc starter mob" ||
       action.label === "disengage orc starter mob" ||
       action.label === "isolate low-level mob" ||
@@ -2012,7 +2030,7 @@ class BotRunner {
       return undefined;
     }
     if (/shadow|overlord|boss|breath|fire|elite/i.test(chatText)) {
-      return "thanks - trying Shadow Overlord now";
+      return "thanks - leveling before Shadow Overlord";
     }
     if (/hello|hi|yo|anyone|what up/i.test(chatText)) {
       return "yo - working on Elite Slayer";
