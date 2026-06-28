@@ -3351,7 +3351,7 @@ function buildWorldSnapshot(screen: ScreenSnapshot, botSummary: BotRunSummary, l
   const text = screen.text || screen.lines.join("\n");
   const mapName = text.match(/\[Map:\s*([^\]]+)\]/)?.[1]?.trim();
   const { grid, entities } = parseWorldGrid(screen.lines);
-  const stats = parseWorldCharacterStats(text);
+  const stats = hydrateWorldStatsFromLogs(parseWorldCharacterStats(text), logs);
   return {
     ts: screen.ts,
     frame: screen.frame,
@@ -3386,7 +3386,7 @@ function parseWorldGrid(lines: string[]): { grid: WorldGrid; entities: WorldEnti
     }
     const end = leftPanel.lastIndexOf("│");
     const inner = end > 0 ? leftPanel.slice(1, end) : leftPanel.slice(1);
-    if (/[█#.·@SQIDCBMP]/.test(inner)) {
+    if (/[█#.·@]/.test(inner)) {
       panelRows.push(inner);
     }
   }
@@ -3517,6 +3517,31 @@ function parseWorldMeter(values: string[] | undefined): WorldMeter | undefined {
     max,
     ratio: clampNumber(current / max, 0, 1)
   };
+}
+
+function hydrateWorldStatsFromLogs(stats: WorldCharacterStats, logs: BotLog[]): WorldCharacterStats {
+  const hydrated: WorldCharacterStats = { ...stats };
+  for (let index = logs.length - 1; index >= 0; index -= 1) {
+    const data = asPlainRecord(logs[index]?.data);
+    hydrated.level ??= numberValue(data.level);
+    hydrated.className ??= stringValue(data.className);
+    hydrated.hp ??= parseWorldMeterText(data.hp);
+    hydrated.mana ??= parseWorldMeterText(data.mana);
+    hydrated.xp ??= parseWorldMeterText(data.xp);
+    hydrated.gold ??= numberValue(data.gold);
+    hydrated.targetHp ??= parseWorldMeterText(data.targetHp);
+    if (hydrated.level && hydrated.className && hydrated.hp && hydrated.mana && hydrated.xp && hydrated.gold !== undefined) {
+      break;
+    }
+  }
+  return hydrated;
+}
+
+function parseWorldMeterText(value: unknown): WorldMeter | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return parseWorldMeter(value.match(/([0-9]+)\/([0-9]+)/)?.slice(1, 3));
 }
 
 function parseNumberMatch(value: string | undefined): number | undefined {
