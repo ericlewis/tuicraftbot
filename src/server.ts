@@ -1420,6 +1420,9 @@ class BotRunner {
       const preEliteFarming = state.level < run.tuning.eliteQuestMinLevel && !questBossRun;
       const savedDepthFarmLevel = this.savedDepthFarmLevel(state);
       const shouldTopOffNearLevel = this.shouldTopOffNearLevel(run, state);
+      const selectedSafeRegularTarget = Boolean(
+        state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
+      );
       const shouldFarmSavedDepth = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
@@ -1442,6 +1445,17 @@ class BotRunner {
           nearestBoss <= run.tuning.earlyBossContactDistance
       );
       if (savedDepthBossBlocked) {
+        const canFinishRegularBeforeBail = Boolean(
+          selectedSafeRegularTarget &&
+            state.targetHp &&
+            state.targetHp.current <= run.tuning.mageMeleeFinishHp &&
+            this.hasAdjacent(state, ["M"]) &&
+            hpRatio > run.tuning.lowHpFinishHpRatio &&
+            (state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs)
+        );
+        if (canFinishRegularBeforeBail) {
+          return { label: "finish regular before saved-depth bail", key: "space" };
+        }
         if (hpRatio > 0.9 && run.bossLureMoves < 2) {
           const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
           if (awayStep) {
@@ -1460,9 +1474,6 @@ class BotRunner {
       if (!questBossRun && state.mapLevel && state.mapLevel > allowedTargetLevel) {
         return { label: "bail from over-depth dungeon", command: "/stuck" };
       }
-      const selectedSafeRegularTarget = Boolean(
-        state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
-      );
       const savedDepthBossTarget = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
@@ -1965,6 +1976,7 @@ class BotRunner {
       action.label === "lure boss away from low-level farm" ||
       action.label === "target hp reset during regular fight" ||
       action.label === "regular target hp stalled" ||
+      action.label === "finish regular before saved-depth bail" ||
       action.label === "seek saved-depth mob" ||
       action.label === "evade saved-depth boss target" ||
       action.label === "bail from saved-depth boss target" ||

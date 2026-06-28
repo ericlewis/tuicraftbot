@@ -14,7 +14,7 @@
   "tuning": {
     "attackCooldownMs": 1800,
     "spellCooldownMs": 1200,
-    "mageMeleeFinishHp": 12,
+    "mageMeleeFinishHp": 50,
     "lowHpFinishHpRatio": 0.45,
     "safeTargetHealHpRatio": 0.55,
     "lowLevelSafeTargetHealHpRatio": 0.65,
