@@ -1543,9 +1543,23 @@ class BotRunner {
           return { label: "cast fireball at boss", text: "f" };
         }
         if (state.targetIsBoss && this.hasAdjacent(state, ["B"])) {
+          if (isMageRun) {
+            const kiteStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+            if (kiteStep) {
+              return { label: "kite adjacent selected boss", key: kiteStep };
+            }
+            return { label: "bail from adjacent selected boss", command: "/stuck" };
+          }
           return { label: "attack selected boss", key: "space" };
         }
         if (this.hasAdjacent(state, ["B"])) {
+          if (isMageRun) {
+            const kiteStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+            if (kiteStep) {
+              return { label: "kite adjacent untargeted boss", key: kiteStep };
+            }
+            return { label: "bail from adjacent untargeted boss", command: "/stuck" };
+          }
           return { label: "attack adjacent boss", key: "space" };
         }
         const bossStep = this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D"] });
@@ -1884,6 +1898,10 @@ class BotRunner {
       action.label === "cast fireball at boss" ||
       action.label === "wait for boss spell cooldown" ||
       action.label === "kite boss during spell cooldown" ||
+      action.label === "kite adjacent selected boss" ||
+      action.label === "bail from adjacent selected boss" ||
+      action.label === "kite adjacent untargeted boss" ||
+      action.label === "bail from adjacent untargeted boss" ||
       action.label === "kite target during cooldown"
     ) {
       return false;
