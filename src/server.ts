@@ -1622,6 +1622,20 @@ class BotRunner {
         }
         return { label: "finish low-hp target", key: "space" };
       }
+      if (
+        selectedSafeRegularTarget &&
+        isMageRun &&
+        state.targetLevel !== undefined &&
+        state.targetLevel <= 2 &&
+        this.hasAdjacent(state, ["M"]) &&
+        hpRatio > Math.max(safeTargetHealThreshold, 0.75)
+      ) {
+        const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
+        if (!attackReady) {
+          return { label: "wait to strike weak blocker", wait: true };
+        }
+        return { label: "strike weak regular blocker", key: "space" };
+      }
       if (canCastFireball && hpRatio > safeTargetHealThreshold) {
         if (!spellReady) {
           return { label: "wait for spell cooldown", wait: true };
@@ -1868,6 +1882,8 @@ class BotRunner {
     if (
       action.wait ||
       action.label === "attack selected regular" ||
+      action.label === "strike weak regular blocker" ||
+      action.label === "wait to strike weak blocker" ||
       action.label === "cast fireball" ||
       action.label === "finish low-hp target" ||
       action.label === "bail from over-depth dungeon" ||
