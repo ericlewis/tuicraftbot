@@ -25,7 +25,7 @@
     "nearLevelFallbackXpRemaining": 0,
     "goDeeperLevelMargin": 3,
     "eliteQuestMinLevel": 4,
-    "questBossMinLevel": 15,
+    "questBossMinLevel": 16,
     "questBossMinWeaponUpgrade": 4,
     "questBossMinArmorUpgrade": 5,
     "maxArmorUpgrade": 5,
