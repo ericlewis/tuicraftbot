@@ -1537,7 +1537,7 @@ class BotRunner {
           return { label: "wait for saved-depth route reset", wait: true };
         }
         const doorAdjacentStep = this.stepToward(state, ["D"], "adjacent", {
-          blockedChars: ["D"],
+          blockedChars: ["D", "P"],
           avoidAdjacentKinds: ["S"]
         });
         if (doorAdjacentStep) {
@@ -1553,7 +1553,7 @@ class BotRunner {
         state.maxDepth > 1
       ) {
         const doorAdjacentStep = this.stepToward(state, ["D"], "adjacent", {
-          blockedChars: ["D"],
+          blockedChars: ["D", "P"],
           avoidAdjacentKinds: ["S"]
         });
         if (doorAdjacentStep) {
