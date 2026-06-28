@@ -22,7 +22,7 @@
     "targetHpResetBailCount": 6,
     "regularFightTimeoutMs": 22000,
     "dungeonProgressStallMs": 20000,
-    "savedDepthRouteResetMs": 20000,
+    "savedDepthRouteResetMs": 5000,
     "mageManaRestMs": 6000,
     "nearLevelFallbackXpRemaining": 2000,
     "goDeeperLevelMargin": 3,
