@@ -2836,14 +2836,25 @@ class BotRunner {
     const hasteLevel = visibleHaste ? Number(visibleHaste[1]) : undefined;
     const hasteCap = visibleHaste ? Number(visibleHaste[2]) : tuning.maxHasteLevel;
     const hasteCost = visibleHaste ? Number(visibleHaste[3]) : undefined;
+    const recentlyCheckedShopAtThisGold = Boolean(
+      run && run.lastMerchantCheckGold === gold && Date.now() < run.nextMerchantCheckAt
+    );
     if (run && hasteLevel !== undefined) {
       run.lastKnownHasteLevel = hasteLevel;
     }
 
-    if (weaponUpgrade < tuning.maxWeaponUpgrade && gold >= weaponCost) {
+    if (
+      weaponUpgrade < tuning.maxWeaponUpgrade &&
+      gold >= weaponCost &&
+      (visibleWeaponCost || !recentlyCheckedShopAtThisGold)
+    ) {
       return { label: "buy weapon upgrade", command: "/buy 1" };
     }
-    if (armorUpgrade < tuning.maxArmorUpgrade && gold >= armorCost) {
+    if (
+      armorUpgrade < tuning.maxArmorUpgrade &&
+      gold >= armorCost &&
+      (visibleArmorCost || !recentlyCheckedShopAtThisGold)
+    ) {
       return { label: "buy armor upgrade", command: "/buy 2" };
     }
     if (
