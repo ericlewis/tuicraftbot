@@ -759,6 +759,7 @@ type BotRunState = {
   bossLureMoves: number;
   bossChipMoves: number;
   lastQuestBossEngagedAt: number;
+  lastQuestBossTargetHp?: { current: number; max: number };
   lastBossBreathCueCount: number;
   savedDepthBlockedUntil: number;
   mageNeedsManaRest: boolean;
@@ -918,6 +919,7 @@ class BotRunner {
       bossLureMoves: 0,
       bossChipMoves: 0,
       lastQuestBossEngagedAt: 0,
+      lastQuestBossTargetHp: undefined,
       lastBossBreathCueCount: 0,
       savedDepthBlockedUntil: 0,
       mageNeedsManaRest: false,
@@ -1370,6 +1372,7 @@ class BotRunner {
       this.resetRegularTargetFight(run);
       run.bossLureMoves = 0;
       run.bossChipMoves = 0;
+      run.lastQuestBossTargetHp = undefined;
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
       const readyForEliteQuest = state.level >= run.tuning.eliteQuestMinLevel;
       if (run.characterClass === "mage" && state.mana && state.mana.current >= 10) {
@@ -1429,6 +1432,7 @@ class BotRunner {
       }
 
       if (run.questComplete || state.questComplete) {
+        run.lastQuestBossTargetHp = undefined;
         const questStep = this.stepToward(state, ["Q"], "adjacent");
         if (questStep) {
           return { label: "return to quest board", key: questStep };
@@ -1490,6 +1494,9 @@ class BotRunner {
       const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
       if (questBossRun && state.targetIsBoss) {
         run.lastQuestBossEngagedAt = Date.now();
+        if (state.targetHp) {
+          run.lastQuestBossTargetHp = state.targetHp;
+        }
       }
       const preEliteFarming = state.level < run.tuning.eliteQuestMinLevel && !questBossRun;
       const savedDepthFarmLevel = this.savedDepthFarmLevel(state);
@@ -1607,7 +1614,7 @@ class BotRunner {
       const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
       const bossBreathCueCount = this.bossBreathCueCount(state);
       const bossBreathCharging = bossBreathCueCount > run.lastBossBreathCueCount || this.hasActiveBossBreathWarning(state);
-      if (questBossRun && bossBreathCharging && nearestBoss !== undefined) {
+      if (questBossRun && bossBreathCharging && nearestBoss !== undefined && !state.targetIsBoss) {
         run.lastBossBreathCueCount = Math.max(run.lastBossBreathCueCount, bossBreathCueCount);
         const awayStep = this.bossBreathEscapeStep(state);
         if (awayStep) {
@@ -1666,14 +1673,21 @@ class BotRunner {
           };
         }
         if (state.targetIsBoss && isMageRun && hasSpellMana) {
-          if (!spellReady) {
-            const kiteStep = this.bossKiteStep(state);
-            if (kiteStep) {
-              return { label: "kite boss during spell cooldown", key: kiteStep };
-            }
-            return { label: "wait for boss spell cooldown", wait: true };
+          if (spellReady) {
+            return { label: "cast fireball at boss", text: "f" };
           }
-          return { label: "cast fireball at boss", text: "f" };
+          if (bossBreathCharging) {
+            run.lastBossBreathCueCount = Math.max(run.lastBossBreathCueCount, bossBreathCueCount);
+            const awayStep = this.bossBreathEscapeStep(state);
+            if (awayStep) {
+              return { label: "evade boss fire breath", key: awayStep };
+            }
+          }
+          const kiteStep = this.bossKiteStep(state);
+          if (kiteStep) {
+            return { label: "kite boss during spell cooldown", key: kiteStep };
+          }
+          return { label: "wait for boss spell cooldown", wait: true };
         }
         if (state.targetIsBoss && this.hasAdjacent(state, ["B"])) {
           if (isMageRun) {
@@ -1695,7 +1709,7 @@ class BotRunner {
           }
           return { label: "attack adjacent boss", key: "space" };
         }
-        const bossStep = this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D"] });
+        const bossStep = this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D", "P"] });
         if (bossStep) {
           return { label: "hunt elite or boss", key: bossStep };
         }
@@ -1917,7 +1931,16 @@ class BotRunner {
       const healThreshold = hasSafeTarget
         ? safeTargetHealThreshold
         : Math.max(run.tuning.unsafeTargetHealHpRatio, lowLevelHealFloor);
-      if (hpRatio < healThreshold) {
+      const recentlyDamagedQuestBoss = Boolean(
+        questBossRun &&
+          Date.now() - run.lastQuestBossEngagedAt <= 8_000 &&
+          run.lastQuestBossTargetHp &&
+          run.lastQuestBossTargetHp.current < run.lastQuestBossTargetHp.max
+      );
+      if (
+        hpRatio < healThreshold &&
+        !(recentlyDamagedQuestBoss && hpRatio > run.tuning.questBossEngagedRetreatHpRatio)
+      ) {
         return { label: "bail to heal", command: "/stuck" };
       }
 
@@ -1940,7 +1963,7 @@ class BotRunner {
       const targetKinds = bossVisible ? ["B"] : ["M"];
       const fightMode = bossVisible ? "adjacent" : "onto";
       const fightStep = this.stepToward(state, targetKinds, fightMode, {
-        blockedChars: ["D"],
+        blockedChars: bossVisible ? ["D", "P"] : ["D"],
         avoidAdjacentKinds: bossVisible ? undefined : ["B"],
         avoidRadius: 3
       });
@@ -2166,7 +2189,7 @@ class BotRunner {
     }
     const bossStep =
       bossEligible && hpRatio > run.tuning.judgeBossHpRatio
-        ? this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D"] })
+        ? this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D", "P"] })
         : undefined;
     if (bossStep) {
       this.addJudgeCandidate(
@@ -2843,7 +2866,13 @@ class BotRunner {
       if (char && options.blockedChars?.includes(char)) {
         continue;
       }
+      if (char && options.avoidChars?.includes(char)) {
+        continue;
+      }
       if (!this.isWalkable(char, false)) {
+        continue;
+      }
+      if (this.isAdjacentToAvoidedKind(state, next, options)) {
         continue;
       }
       const distance = Math.min(...threats.map((threat) => manhattan(next, threat)));
@@ -2860,15 +2889,16 @@ class BotRunner {
 
   private bossKiteStep(state: ParsedGameState): string | undefined {
     return (
-      this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] }) ??
-      this.stepAwayFrom(state, ["M"], { blockedChars: ["D"] }) ??
-      this.firstWalkableStep(state, { blockedChars: ["D"], avoidAdjacentKinds: ["B"], avoidRadius: 2 })
+      this.stepAwayFrom(state, ["B"], { blockedChars: ["D", "P"], avoidChars: ["·"] }) ??
+      this.stepAwayFrom(state, ["M"], { blockedChars: ["D", "P"], avoidChars: ["·"] }) ??
+      this.firstWalkableStep(state, { blockedChars: ["D", "P"], avoidChars: ["·"], avoidAdjacentKinds: ["B"], avoidRadius: 2 }) ??
+      this.firstWalkableStep(state, { blockedChars: ["D", "P"], avoidChars: ["·"] })
     );
   }
 
   private bossBreathEscapeStep(state: ParsedGameState): string | undefined {
     return (
-      this.firstWalkableStep(state, { blockedChars: ["D"], avoidChars: ["·"], avoidAdjacentKinds: ["B"], avoidRadius: 2 }) ??
+      this.firstWalkableStep(state, { blockedChars: ["D", "P"], avoidChars: ["·"], avoidAdjacentKinds: ["B"], avoidRadius: 2 }) ??
       this.bossKiteStep(state)
     );
   }

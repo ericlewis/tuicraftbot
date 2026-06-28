@@ -27,7 +27,7 @@
     "eliteQuestMinLevel": 4,
     "questBossMinLevel": 17,
     "questBossMinWeaponUpgrade": 5,
-    "questBossMinArmorUpgrade": 5,
+    "questBossMinArmorUpgrade": 6,
     "maxWeaponUpgrade": 5,
     "maxArmorUpgrade": 6,
     "upgradeCostBaseGold": 125,
