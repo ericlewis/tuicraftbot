@@ -2185,9 +2185,10 @@ class BotRunner {
           run.lastQuestBossTargetHp &&
           run.lastQuestBossTargetHp.current < run.lastQuestBossTargetHp.max
       );
+      const recentBossContinueFloor = Math.max(run.tuning.questBossEngagedRetreatHpRatio, 0.45);
       if (
         hpRatio < healThreshold &&
-        !(recentlyDamagedQuestBoss && hpRatio > run.tuning.questBossEngagedRetreatHpRatio)
+        !(recentlyDamagedQuestBoss && hpRatio > recentBossContinueFloor)
       ) {
         return { label: "bail to heal", command: "/stuck" };
       }
