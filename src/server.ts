@@ -1533,6 +1533,13 @@ class BotRunner {
         state.maxDepth &&
         state.maxDepth > 1
       ) {
+        if (this.shouldTopOffNearLevel(run, state)) {
+          const doorStep = this.stepToward(state, ["D"], "onto", { avoidAdjacentKinds: ["S"] });
+          if (doorStep) {
+            return { label: "go to fallback quest dungeon door", key: doorStep };
+          }
+          return { label: "enter fallback quest dungeon portal", command: "/enter 1" };
+        }
         if (Date.now() < run.savedDepthBlockedUntil) {
           return { label: "wait for saved-depth route reset", wait: true };
         }
@@ -1617,7 +1624,7 @@ class BotRunner {
         return { label: "bail to saved depth for gear farm", command: "/stuck" };
       }
       if (questBossRun && !questBossReady && state.targetIsBoss && !savedDepthFarmingDungeon) {
-        run.savedDepthBlockedUntil = Date.now() + 15_000;
+        run.savedDepthBlockedUntil = Date.now() + 60_000;
         return { label: "bail from under-ready boss target", command: "/stuck" };
       }
       const savedDepthBossBlocked = Boolean(
@@ -1648,7 +1655,7 @@ class BotRunner {
             return { label: "evade saved-depth boss contact", key: awayStep };
           }
         }
-        run.savedDepthBlockedUntil = Date.now() + 15_000;
+        run.savedDepthBlockedUntil = Date.now() + 60_000;
         return { label: "bail from blocked saved-depth boss", command: "/stuck" };
       }
       const lowLevelHealFloor = preEliteFarming ? 0.7 : 0;
@@ -2427,7 +2434,7 @@ class BotRunner {
     if (!state.maxDepth || state.maxDepth <= 1) {
       return undefined;
     }
-    return Math.min(state.maxDepth, Math.max(2, state.level - 2));
+    return Math.min(state.maxDepth, 4, Math.max(2, state.level - 2));
   }
 
   private shouldTopOffNearLevel(run: BotRunState, state: ParsedGameState): boolean {
@@ -2973,7 +2980,8 @@ class BotRunner {
       }
       if (
         mode === "adjacent" &&
-        targets.some((target) => manhattan(current, target) === 1)
+        targets.some((target) => manhattan(current, target) === 1) &&
+        !this.isBlockedPoint(state, current, options)
       ) {
         found = current;
         break;
@@ -2987,7 +2995,7 @@ class BotRunner {
         }
         const char = state.grid[next.y]?.[next.x];
         const isTarget = mode === "onto" && targetKeys.has(nextKey);
-        if (!isTarget && char && options.blockedChars?.includes(char)) {
+        if (!isTarget && this.isBlockedPoint(state, next, options)) {
           continue;
         }
         if (!this.isWalkable(char, isTarget)) {
@@ -3016,6 +3024,18 @@ class BotRunner {
       current = { x: prev.x, y: prev.y };
     }
     return keys.reverse();
+  }
+
+  private isBlockedPoint(state: ParsedGameState, point: Point, options: PathfindOptions): boolean {
+    const blockedChars = options.blockedChars ?? [];
+    if (blockedChars.length === 0) {
+      return false;
+    }
+    const char = state.grid[point.y]?.[point.x];
+    if (char && blockedChars.includes(char)) {
+      return true;
+    }
+    return state.entities.some((entity) => entity.x === point.x && entity.y === point.y && blockedChars.includes(entity.kind));
   }
 
   private stepAwayFrom(state: ParsedGameState, kinds: string[], options: PathfindOptions = {}): string | undefined {
