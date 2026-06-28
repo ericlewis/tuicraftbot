@@ -210,6 +210,8 @@ server.registerTool(
           questBossEngagedRetreatHpRatio: z.number().min(0).max(1).optional(),
           questBossFinishHpRatio: z.number().min(0).max(1).optional(),
           questBossMinFightHpRatio: z.number().min(0).max(1).optional(),
+          questBossFailureLockoutMs: z.number().int().min(0).max(3600000).optional(),
+          questBossFailureFarmLevelGain: z.number().int().min(0).max(10).optional(),
           safeTargetHealHpRatio: z.number().min(0).max(1).optional(),
           lowLevelSafeTargetHealHpRatio: z.number().min(0).max(1).optional(),
           unsafeTargetHealHpRatio: z.number().min(0).max(1).optional(),

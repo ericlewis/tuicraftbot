@@ -72,6 +72,8 @@ type BotTuningConfig = {
   questBossEngagedRetreatHpRatio: number;
   questBossFinishHpRatio: number;
   questBossMinFightHpRatio: number;
+  questBossFailureLockoutMs: number;
+  questBossFailureFarmLevelGain: number;
   safeTargetHealHpRatio: number;
   lowLevelSafeTargetHealHpRatio: number;
   unsafeTargetHealHpRatio: number;
@@ -292,6 +294,8 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   questBossEngagedRetreatHpRatio: 0.25,
   questBossFinishHpRatio: 0.4,
   questBossMinFightHpRatio: 0.3,
+  questBossFailureLockoutMs: 15 * 60_000,
+  questBossFailureFarmLevelGain: 1,
   safeTargetHealHpRatio: 0.35,
   lowLevelSafeTargetHealHpRatio: 0.65,
   unsafeTargetHealHpRatio: 0.55,
@@ -808,6 +812,11 @@ type BotRunState = {
   bossChipMoves: number;
   lastQuestBossEngagedAt: number;
   lastQuestBossTargetHp?: { current: number; max: number };
+  questBossFailureCount: number;
+  questBossFailureLevel?: number;
+  questBossFailureArmorUpgrade?: number;
+  questBossFailureUntil: number;
+  lastQuestBossFailureRecordedAt: number;
   lastBossBreathCueCount: number;
   savedDepthBlockedUntil: number;
   mageNeedsManaRest: boolean;
@@ -977,6 +986,11 @@ class BotRunner {
       bossChipMoves: 0,
       lastQuestBossEngagedAt: 0,
       lastQuestBossTargetHp: undefined,
+      questBossFailureCount: 0,
+      questBossFailureLevel: undefined,
+      questBossFailureArmorUpgrade: undefined,
+      questBossFailureUntil: 0,
+      lastQuestBossFailureRecordedAt: 0,
       lastBossBreathCueCount: 0,
       savedDepthBlockedUntil: 0,
       mageNeedsManaRest: false,
@@ -1304,6 +1318,10 @@ class BotRunner {
 
   private nextBestInventoryEquipAction(text: string): BotAction | undefined {
     if (/--- ACTION ---/i.test(text) && /\bItem:\s*[^\n│]+/i.test(text)) {
+      const actionItem = text.match(/\bItem:\s*([^\n│]+)/i)?.[1]?.trim();
+      if (actionItem && this.itemAppearsEquippedInStats(text, actionItem)) {
+        return { label: "close equipped best gear action", key: "escape" };
+      }
       if (/▶\s*Equip Item/i.test(text)) {
         return { label: "confirm best gear equip", key: "enter" };
       }
@@ -1347,6 +1365,14 @@ class BotRunner {
     }
 
     return undefined;
+  }
+
+  private itemAppearsEquippedInStats(text: string, itemName: string): boolean {
+    const escapedName = escapeRegExp(itemName);
+    return (
+      new RegExp(`\\b(?:Wpn|Arm):[^\\n│]*${escapedName}\\b`, "i").test(text) ||
+      new RegExp(`\\[Inventory\\]\\s+Equipped\\s+${escapedName}\\b`, "i").test(text)
+    );
   }
 
   private parseInventoryItems(text: string): Array<{
@@ -1528,6 +1554,9 @@ class BotRunner {
     }
 
     if (state.dead) {
+      if (this.recentQuestBossAttempt(run, state)) {
+        this.recordQuestBossFailure(run, state, "death");
+      }
       this.resetRegularTargetFight(run);
       return { label: "recover from death", command: "/stuck" };
     }
@@ -1551,6 +1580,9 @@ class BotRunner {
     }
 
     if (state.inTown) {
+      if (this.shouldRecordQuestBossRetreatFailure(run, state)) {
+        this.recordQuestBossFailure(run, state, "retreat");
+      }
       this.resetRegularTargetFight(run);
       this.resetDungeonProgressStall(run);
       run.bossLureMoves = 0;
@@ -2650,6 +2682,9 @@ class BotRunner {
     if (run.tuning.nearLevelFallbackXpRemaining <= 0 || state.level >= run.tuning.questBossMinLevel) {
       return false;
     }
+    if (this.hasAcceptedEliteQuest(run, state) && state.maxDepth && state.maxDepth > 1) {
+      return false;
+    }
     const xp = state.xp ?? run.lastKnownXp;
     if (!xp) {
       return false;
@@ -2671,7 +2706,11 @@ class BotRunner {
   }
 
   private hasQuestBossReadiness(run: BotRunState, state: ParsedGameState): boolean {
-    return this.hasAcceptedEliteQuest(run, state) && this.hasQuestBossLevelAndGearReadiness(run, state);
+    return (
+      this.hasAcceptedEliteQuest(run, state) &&
+      this.hasQuestBossLevelAndGearReadiness(run, state) &&
+      !this.isQuestBossFailureLocked(run, state)
+    );
   }
 
   private hasQuestBossLevelAndGearReadiness(run: BotRunState, state: ParsedGameState): boolean {
@@ -2691,6 +2730,66 @@ class BotRunner {
     );
   }
 
+  private recentQuestBossAttempt(run: BotRunState, state: ParsedGameState): boolean {
+    return (
+      Date.now() - run.lastQuestBossEngagedAt <= 45_000 ||
+      Boolean(run.lastQuestBossTargetHp && run.lastQuestBossTargetHp.current < run.lastQuestBossTargetHp.max) ||
+      /Shadow Overlord|BOSS Lvl/i.test(state.text)
+    );
+  }
+
+  private shouldRecordQuestBossRetreatFailure(run: BotRunState, state: ParsedGameState): boolean {
+    return Boolean(
+      state.inTown &&
+        !state.questComplete &&
+        !state.winText &&
+        Date.now() - run.lastQuestBossEngagedAt <= 45_000 &&
+        run.lastQuestBossTargetHp &&
+        run.lastQuestBossTargetHp.current < run.lastQuestBossTargetHp.max
+    );
+  }
+
+  private recordQuestBossFailure(run: BotRunState, state: ParsedGameState, reason: "death" | "retreat"): void {
+    const now = Date.now();
+    if (now - run.lastQuestBossFailureRecordedAt < 5_000) {
+      return;
+    }
+    run.questBossFailureCount += 1;
+    run.questBossFailureLevel = state.level || run.lastKnownLevel;
+    run.questBossFailureArmorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
+    run.questBossFailureUntil = now + run.tuning.questBossFailureLockoutMs;
+    run.lastQuestBossFailureRecordedAt = now;
+    this.log("warn", "quest boss attempt failed", {
+      reason,
+      failureCount: run.questBossFailureCount,
+      retryAfterMs: run.tuning.questBossFailureLockoutMs,
+      retryAfterLevelGain: run.tuning.questBossFailureFarmLevelGain,
+      level: run.questBossFailureLevel,
+      armorUpgrade: run.questBossFailureArmorUpgrade
+    });
+  }
+
+  private isQuestBossFailureLocked(run: BotRunState, state: ParsedGameState): boolean {
+    if (!run.questBossFailureLevel && !run.questBossFailureArmorUpgrade && Date.now() >= run.questBossFailureUntil) {
+      return false;
+    }
+    const levelGain =
+      run.questBossFailureLevel === undefined ? 0 : Math.max(0, state.level - run.questBossFailureLevel);
+    const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
+    const armorImproved = Boolean(
+      armorUpgrade !== undefined &&
+        run.questBossFailureArmorUpgrade !== undefined &&
+        armorUpgrade > run.questBossFailureArmorUpgrade
+    );
+    if (levelGain >= run.tuning.questBossFailureFarmLevelGain || armorImproved) {
+      run.questBossFailureLevel = undefined;
+      run.questBossFailureArmorUpgrade = undefined;
+      run.questBossFailureUntil = 0;
+      return false;
+    }
+    return Date.now() < run.questBossFailureUntil || run.tuning.questBossFailureFarmLevelGain > 0;
+  }
+
   private isWeaponReady(run: BotRunState, weaponUpgrade: number | undefined, weaponPower: number | undefined): boolean {
     if (weaponUpgrade !== undefined) {
       return weaponUpgrade >= run.tuning.questBossMinWeaponUpgrade;
@@ -2699,7 +2798,7 @@ class BotRunner {
     if (weaponPower !== undefined && weaponPower >= requiredPower) {
       return true;
     }
-    return weaponUpgrade === undefined && weaponPower === undefined;
+    return false;
   }
 
   private isArmorReady(run: BotRunState, armorUpgrade: number | undefined, armorValue: number | undefined): boolean {
@@ -2710,7 +2809,7 @@ class BotRunner {
     if (armorValue !== undefined && armorValue >= requiredArmor) {
       return true;
     }
-    return armorUpgrade === undefined && armorValue === undefined;
+    return false;
   }
 
   private hasAcceptedEliteQuest(run: BotRunState, state: ParsedGameState): boolean {
@@ -2866,7 +2965,7 @@ class BotRunner {
           screen.text
         ),
       questComplete:
-        /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest (?:complete|Objective Completed)|Reward claimed|Quest:\s*Elite Slayer\s*\(Ready!\)/i.test(
+        /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest (?:complete|Objective Completed)|Reward claimed/i.test(
           screen.text
         ),
       noActiveQuest: /\bNo active quest\b/i.test(screen.text),
@@ -4568,6 +4667,8 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "questBossEngagedRetreatHpRatio");
   setTuningNumber(tuning, source, "questBossFinishHpRatio");
   setTuningNumber(tuning, source, "questBossMinFightHpRatio");
+  setTuningNumber(tuning, source, "questBossFailureLockoutMs");
+  setTuningNumber(tuning, source, "questBossFailureFarmLevelGain");
   setTuningNumber(tuning, source, "safeTargetHealHpRatio");
   setTuningNumber(tuning, source, "lowLevelSafeTargetHealHpRatio");
   setTuningNumber(tuning, source, "unsafeTargetHealHpRatio");
@@ -4643,6 +4744,20 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       "TUICRAFT_BOSS_MIN_FIGHT_HP_RATIO",
       0,
       1
+    ),
+    questBossFailureLockoutMs: tuneInteger(
+      overrides,
+      "questBossFailureLockoutMs",
+      "TUICRAFT_BOSS_FAILURE_LOCKOUT_MS",
+      0,
+      3_600_000
+    ),
+    questBossFailureFarmLevelGain: tuneInteger(
+      overrides,
+      "questBossFailureFarmLevelGain",
+      "TUICRAFT_BOSS_FAILURE_FARM_LEVEL_GAIN",
+      0,
+      10
     ),
     safeTargetHealHpRatio: tuneNumber(overrides, "safeTargetHealHpRatio", "TUICRAFT_SAFE_TARGET_HEAL_HP_RATIO", 0, 1),
     lowLevelSafeTargetHealHpRatio: tuneNumber(

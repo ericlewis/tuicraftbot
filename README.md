@@ -129,6 +129,8 @@ with env vars:
 - `TUICRAFT_TOWN_HEAL_HP_RATIO`
 - `TUICRAFT_BOSS_PRE_HP_RATIO`, `TUICRAFT_BOSS_ENGAGED_HP_RATIO`,
   `TUICRAFT_BOSS_FINISH_HP_RATIO`, `TUICRAFT_BOSS_MIN_FIGHT_HP_RATIO`
+- `TUICRAFT_BOSS_FAILURE_LOCKOUT_MS`,
+  `TUICRAFT_BOSS_FAILURE_FARM_LEVEL_GAIN`
 - `TUICRAFT_SAFE_TARGET_HEAL_HP_RATIO`, `TUICRAFT_UNSAFE_TARGET_HEAL_HP_RATIO`,
   `TUICRAFT_GO_DEEPER_HP_RATIO`, `TUICRAFT_GO_DEEPER_LEVEL_MARGIN`
 - `TUICRAFT_JUDGE_BOSS_HP_RATIO`, `TUICRAFT_JUDGE_MOB_HP_RATIO`,
@@ -163,6 +165,11 @@ Generated bot passwords are redacted in `/api/raw`.
 Equipment upgrade estimates use
 `TUICRAFT_UPGRADE_COST_BASE_GOLD * (currentUpgrade + 1)^2`; the observed base
 for the current game economy is `25`.
+
+Failed Shadow Overlord attempts are treated as balance evidence. If a boss
+attempt ends in a retreat or death without quest completion, the win bot blocks
+additional boss attempts until the configured lockout expires or the character
+farms the configured level gain or armor upgrade.
 
 ## Live progression view
 
