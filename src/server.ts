@@ -102,6 +102,7 @@ type BotTuningConfig = {
   targetHpResetBailCount: number;
   regularFightTimeoutMs: number;
   dungeonProgressStallMs: number;
+  savedDepthRouteResetMs: number;
 };
 
 type BotRunSummary = {
@@ -320,7 +321,8 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   nearLevelFallbackXpRemaining: 0,
   targetHpResetBailCount: 1,
   regularFightTimeoutMs: 45_000,
-  dungeonProgressStallMs: 30_000
+  dungeonProgressStallMs: 30_000,
+  savedDepthRouteResetMs: 60_000
 };
 
 class GameBridge {
@@ -1768,7 +1770,7 @@ class BotRunner {
         if (mobStep && hpRatio > run.tuning.safeTargetHealHpRatio) {
           return { label: "seek mob away from under-ready boss", key: mobStep };
         }
-        run.savedDepthBlockedUntil = Date.now() + 60_000;
+        run.savedDepthBlockedUntil = Date.now() + this.savedDepthRouteResetMs(run);
         return { label: "bail from under-ready boss target", command: "/stuck" };
       }
       const savedDepthBossBlocked = Boolean(
@@ -1799,7 +1801,7 @@ class BotRunner {
             return { label: "evade saved-depth boss contact", key: awayStep };
           }
         }
-        run.savedDepthBlockedUntil = Date.now() + 60_000;
+        run.savedDepthBlockedUntil = Date.now() + this.savedDepthRouteResetMs(run);
         return { label: "bail from blocked saved-depth boss", command: "/stuck" };
       }
       const lowLevelHealFloor = preEliteFarming ? 0.7 : 0;
@@ -3058,6 +3060,14 @@ class BotRunner {
     }
     const stallMs = run.tuning.dungeonProgressStallMs ?? DEFAULT_BOT_TUNING.dungeonProgressStallMs;
     return now - (run.dungeonProgressSince || now) >= stallMs;
+  }
+
+  private savedDepthRouteResetMs(run: BotRunState): number {
+    return (
+      run.tuning.savedDepthRouteResetMs ??
+      run.tuning.dungeonProgressStallMs ??
+      DEFAULT_BOT_TUNING.savedDepthRouteResetMs
+    );
   }
 
   private resetDungeonProgressStall(run: BotRunState): void {
@@ -4588,6 +4598,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "targetHpResetBailCount");
   setTuningNumber(tuning, source, "regularFightTimeoutMs");
   setTuningNumber(tuning, source, "dungeonProgressStallMs");
+  setTuningNumber(tuning, source, "savedDepthRouteResetMs");
   return Object.keys(tuning).length > 0 ? tuning : undefined;
 }
 
@@ -4744,6 +4755,13 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       overrides,
       "dungeonProgressStallMs",
       "TUICRAFT_DUNGEON_PROGRESS_STALL_MS",
+      5_000,
+      300_000
+    ),
+    savedDepthRouteResetMs: tuneInteger(
+      overrides,
+      "savedDepthRouteResetMs",
+      "TUICRAFT_SAVED_DEPTH_ROUTE_RESET_MS",
       5_000,
       300_000
     )

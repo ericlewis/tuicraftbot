@@ -239,7 +239,8 @@ server.registerTool(
           nearLevelFallbackXpRemaining: z.number().int().min(0).max(10000).optional(),
           targetHpResetBailCount: z.number().int().min(1).max(10).optional(),
           regularFightTimeoutMs: z.number().int().min(5000).max(300000).optional(),
-          dungeonProgressStallMs: z.number().int().min(5000).max(300000).optional()
+          dungeonProgressStallMs: z.number().int().min(5000).max(300000).optional(),
+          savedDepthRouteResetMs: z.number().int().min(5000).max(300000).optional()
         })
         .optional(),
       accountUsername: z.string().min(1).optional(),
