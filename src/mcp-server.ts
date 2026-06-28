@@ -445,6 +445,9 @@ async function getProgressionSnapshot(base: string, logLimit: number): Promise<u
   const levelGate = numeric(tuning.questBossMinLevel) ?? 4;
   const weaponGate = numeric(tuning.questBossMinWeaponUpgrade) ?? 0;
   const armorGate = numeric(tuning.questBossMinArmorUpgrade) ?? 0;
+  const weaponRequirement =
+    weaponUpgrade !== undefined ? `+${weaponGate}` : `+${weaponGate} or power ${5 + weaponGate}`;
+  const armorRequirement = armorUpgrade !== undefined ? `+${armorGate}` : `+${armorGate} or armor ${3 + armorGate}`;
   const hpGate = numeric(tuning.questBossMinFightHpRatio) ?? 0.3;
   const hpRatio = numeric(hp.ratio) ?? ratio(hp);
   const questAccepted = questLooksAccepted(stats, logs);
@@ -474,8 +477,8 @@ async function getProgressionSnapshot(base: string, logLimit: number): Promise<u
     },
     bossReadiness: [
       gate("level", level, levelGate, level !== undefined && level >= levelGate),
-      gate("weapon", weapon, `+${weaponGate} or power ${5 + weaponGate}`, !weaponMissing && isWeaponValueReady(weaponUpgrade, weaponPower, weaponGate)),
-      gate("armor", armor, `+${armorGate} or armor ${3 + armorGate}`, !armorMissing && isArmorValueReady(armorUpgrade, armorValue, armorGate)),
+      gate("weapon", weapon, weaponRequirement, !weaponMissing && isWeaponValueReady(weaponUpgrade, weaponPower, weaponGate)),
+      gate("armor", armor, armorRequirement, !armorMissing && isArmorValueReady(armorUpgrade, armorValue, armorGate)),
       gate("quest", questAccepted ? "Elite Slayer" : undefined, "Elite Slayer accepted", questAccepted),
       gate("fightHpRatio", hpRatio, hpGate, hpRatio !== undefined && hpRatio > hpGate),
       gate("bossTarget", target, "not currently engaged", !target || !/Boss|Shadow Overlord/i.test(target))
@@ -653,19 +656,23 @@ function parseItemRating(value: string | undefined): number | undefined {
 }
 
 function isWeaponValueReady(upgrade: number | undefined, power: number | undefined, requiredUpgrade: number): boolean {
-  return (
-    (upgrade !== undefined && upgrade >= requiredUpgrade) ||
-    (power !== undefined && power >= 5 + requiredUpgrade) ||
-    (upgrade === undefined && power === undefined)
-  );
+  if (upgrade !== undefined) {
+    return upgrade >= requiredUpgrade;
+  }
+  if (power !== undefined) {
+    return power >= 5 + requiredUpgrade;
+  }
+  return true;
 }
 
 function isArmorValueReady(upgrade: number | undefined, armor: number | undefined, requiredUpgrade: number): boolean {
-  return (
-    (upgrade !== undefined && upgrade >= requiredUpgrade) ||
-    (armor !== undefined && armor >= 3 + requiredUpgrade) ||
-    (upgrade === undefined && armor === undefined)
-  );
+  if (upgrade !== undefined) {
+    return upgrade >= requiredUpgrade;
+  }
+  if (armor !== undefined) {
+    return armor >= 3 + requiredUpgrade;
+  }
+  return true;
 }
 
 function questLooksAccepted(stats: Record<string, unknown>, logs: Record<string, unknown>[]): boolean {

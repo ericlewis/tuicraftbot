@@ -744,15 +744,15 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
 
     function isWeaponValueReady(upgrade, power, requiredUpgrade) {
-      return (Number.isFinite(upgrade) && upgrade >= requiredUpgrade) ||
-        (Number.isFinite(power) && power >= 5 + requiredUpgrade) ||
-        (!Number.isFinite(upgrade) && !Number.isFinite(power));
+      if (Number.isFinite(upgrade)) return upgrade >= requiredUpgrade;
+      if (Number.isFinite(power)) return power >= 5 + requiredUpgrade;
+      return true;
     }
 
     function isArmorValueReady(upgrade, armor, requiredUpgrade) {
-      return (Number.isFinite(upgrade) && upgrade >= requiredUpgrade) ||
-        (Number.isFinite(armor) && armor >= 3 + requiredUpgrade) ||
-        (!Number.isFinite(upgrade) && !Number.isFinite(armor));
+      if (Number.isFinite(upgrade)) return upgrade >= requiredUpgrade;
+      if (Number.isFinite(armor)) return armor >= 3 + requiredUpgrade;
+      return true;
     }
 
     function tuningNumber(world, key, fallback) {

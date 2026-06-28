@@ -4466,19 +4466,23 @@ function parseItemRating(value: string | undefined): number | undefined {
 }
 
 function isWeaponValueReady(upgrade: number | undefined, power: number | undefined, requiredUpgrade: number): boolean {
-  return (
-    (upgrade !== undefined && upgrade >= requiredUpgrade) ||
-    (power !== undefined && power >= 5 + requiredUpgrade) ||
-    (upgrade === undefined && power === undefined)
-  );
+  if (upgrade !== undefined) {
+    return upgrade >= requiredUpgrade;
+  }
+  if (power !== undefined) {
+    return power >= 5 + requiredUpgrade;
+  }
+  return true;
 }
 
 function isArmorValueReady(upgrade: number | undefined, armor: number | undefined, requiredUpgrade: number): boolean {
-  return (
-    (upgrade !== undefined && upgrade >= requiredUpgrade) ||
-    (armor !== undefined && armor >= 3 + requiredUpgrade) ||
-    (upgrade === undefined && armor === undefined)
-  );
+  if (upgrade !== undefined) {
+    return upgrade >= requiredUpgrade;
+  }
+  if (armor !== undefined) {
+    return armor >= 3 + requiredUpgrade;
+  }
+  return true;
 }
 
 function parseHasteLevel(value: string | undefined): number | undefined {
