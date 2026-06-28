@@ -1836,8 +1836,8 @@ class BotRunner {
     this.addJudgeCandidate(candidates, "deterministic", deterministicAction, "Current deterministic policy choice.");
 
     const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
-    const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
-    if (questBossRun && state.targetIsEliteOrBoss && hpRatio > run.tuning.judgeBossHpRatio) {
+    const bossEligible = this.canFightQuestBoss(run, state, hpRatio);
+    if (bossEligible && state.targetIsEliteOrBoss && hpRatio > run.tuning.judgeBossHpRatio) {
       this.addJudgeCandidate(
         candidates,
         "attack_selected_boss",
@@ -1845,7 +1845,7 @@ class BotRunner {
         "Target panel is an elite or boss and HP is above the critical retreat threshold."
       );
     }
-    if (questBossRun && this.hasAdjacent(state, ["B"]) && hpRatio > run.tuning.judgeBossHpRatio) {
+    if (bossEligible && this.hasAdjacent(state, ["B"]) && hpRatio > run.tuning.judgeBossHpRatio) {
       this.addJudgeCandidate(
         candidates,
         "attack_adjacent_boss",
@@ -1854,7 +1854,7 @@ class BotRunner {
       );
     }
     const bossStep =
-      questBossRun && hpRatio > run.tuning.judgeBossHpRatio
+      bossEligible && hpRatio > run.tuning.judgeBossHpRatio
         ? this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D"] })
         : undefined;
     if (bossStep) {
@@ -1976,8 +1976,10 @@ class BotRunner {
   }
 
   private canFightQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
-    const weaponReady = !state.weaponMissing && (state.weaponUpgrade === undefined || state.weaponUpgrade >= 2);
-    const armorReady = !state.armorMissing && (state.armorUpgrade === undefined || state.armorUpgrade >= 2);
+    const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade;
+    const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
+    const weaponReady = !state.weaponMissing && (weaponUpgrade === undefined || weaponUpgrade >= 2);
+    const armorReady = !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= 2);
     return (
       this.hasAcceptedEliteQuest(run, state) &&
       hpRatio > run.tuning.questBossMinFightHpRatio &&
