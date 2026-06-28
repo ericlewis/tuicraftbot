@@ -83,6 +83,7 @@ type BotTuningConfig = {
   questBossMinLevel: number;
   questBossMinWeaponUpgrade: number;
   questBossMinArmorUpgrade: number;
+  questBossMinHasteLevel: number;
   earlyBossAvoidPlayerLevel: number;
   earlyBossAvoidDistance: number;
   earlyBossContactDistance: number;
@@ -144,6 +145,7 @@ type BotRunSummary = {
     gold?: number;
     weaponUpgrade?: number;
     armorUpgrade?: number;
+    hasteLevel?: number;
   };
   tuning?: BotTuningConfig;
 };
@@ -296,6 +298,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   questBossMinLevel: 4,
   questBossMinWeaponUpgrade: 2,
   questBossMinArmorUpgrade: 2,
+  questBossMinHasteLevel: 0,
   earlyBossAvoidPlayerLevel: 3,
   earlyBossAvoidDistance: 3,
   earlyBossContactDistance: 1,
@@ -726,6 +729,7 @@ type ParsedGameState = {
   swingReady?: boolean;
   weaponUpgrade?: number;
   armorUpgrade?: number;
+  hasteLevel?: number;
   weaponMissing: boolean;
   armorMissing: boolean;
   sellableItemId?: number;
@@ -805,6 +809,7 @@ type BotRunState = {
   lastKnownGold?: number;
   lastKnownWeaponUpgrade?: number;
   lastKnownArmorUpgrade?: number;
+  lastKnownHasteLevel?: number;
   lastMerchantCheckGold?: number;
   nextMerchantCheckAt: number;
   regularTargetKey?: string;
@@ -887,7 +892,8 @@ class BotRunner {
         xp: this.run.lastKnownXp,
         gold: this.run.lastKnownGold,
         weaponUpgrade: this.run.lastKnownWeaponUpgrade,
-        armorUpgrade: this.run.lastKnownArmorUpgrade
+        armorUpgrade: this.run.lastKnownArmorUpgrade,
+        hasteLevel: this.run.lastKnownHasteLevel
       },
       tuning: this.run.tuning ?? DEFAULT_BOT_TUNING
     };
@@ -1476,19 +1482,19 @@ class BotRunner {
       if (merchantCommand || shouldCheckMerchant) {
         const merchantStep = this.isMerchantShopOpen(state) ? undefined : this.stepToward(state, ["S"], "adjacent");
         if (merchantStep) {
-          if (shouldCheckMerchant) {
-            run.lastMerchantCheckGold = state.gold ?? run.lastKnownGold;
-            run.nextMerchantCheckAt = Date.now() + 120_000;
-          }
           return { label: shouldCheckMerchant ? "check merchant upgrades" : "go to merchant", key: merchantStep };
         }
         if (merchantCommand) {
           return merchantCommand;
         }
+        if (shouldCheckMerchant) {
+          run.lastMerchantCheckGold = state.gold ?? run.lastKnownGold;
+          run.nextMerchantCheckAt = Date.now() + 120_000;
+        }
       }
       if (this.isMerchantShopOpen(state)) {
         const awayStep = this.stepAwayFrom(state, ["S"]);
-        return { label: "leave merchant shop", text: awayStep ?? "d" };
+        return { label: "leave merchant shop", key: awayStep ?? "d" };
       }
 
       if (run.questComplete || state.questComplete) {
@@ -2455,15 +2461,20 @@ class BotRunner {
   private hasQuestBossLevelAndGearReadiness(run: BotRunState, state: ParsedGameState): boolean {
     const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade;
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
+    const hasteLevel = state.hasteLevel ?? run.lastKnownHasteLevel;
     const weaponReady =
       !state.weaponMissing &&
       (weaponUpgrade === undefined || weaponUpgrade >= run.tuning.questBossMinWeaponUpgrade);
     const armorReady =
       !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= run.tuning.questBossMinArmorUpgrade);
+    const hasteReady =
+      run.tuning.questBossMinHasteLevel <= 0 ||
+      (hasteLevel !== undefined && hasteLevel >= run.tuning.questBossMinHasteLevel);
     return (
       state.level >= Math.max(run.tuning.questBossMinLevel, state.mapLevel ?? run.tuning.questBossMinLevel) &&
       weaponReady &&
-      armorReady
+      armorReady &&
+      hasteReady
     );
   }
 
@@ -2533,6 +2544,9 @@ class BotRunner {
     );
     const weaponUpgradeMatch = screen.text.match(/Wpn:[^\n│]*\+(\d+)/) ?? screen.text.match(/Weapon:\s*\+(\d+)/);
     const armorUpgradeMatch = screen.text.match(/Arm:[^\n│]*\+(\d+)/) ?? screen.text.match(/Armor\s*:\s*\+(\d+)/);
+    const hasteLevelMatch =
+      screen.text.match(/Hst:\s*Lvl\s*(\d+)\/\d+/i) ??
+      screen.text.match(/Haste\s*:\s*Lvl\s*(\d+)\/\d+/i);
     const weaponMissing = /\bWpn:\s*None\b/i.test(screen.text);
     const armorMissing = /\bArm:\s*None\b/i.test(screen.text);
     const sellableItemMatch = /Sellable Items:/i.test(screen.text) ? screen.text.match(/\[(\d+)\]\s+[^\n│]+?\(\+?\d+g\)/) : undefined;
@@ -2589,6 +2603,7 @@ class BotRunner {
       swingReady: swingMatch ? /\bREADY\b/i.test(swingMatch[1]) : undefined,
       weaponUpgrade: weaponUpgradeMatch ? Number(weaponUpgradeMatch[1]) : undefined,
       armorUpgrade: armorUpgradeMatch ? Number(armorUpgradeMatch[1]) : undefined,
+      hasteLevel: hasteLevelMatch ? Number(hasteLevelMatch[1]) : undefined,
       weaponMissing,
       armorMissing,
       sellableItemId: sellableItemMatch ? Number(sellableItemMatch[1]) : undefined,
@@ -2683,6 +2698,9 @@ class BotRunner {
     if (state.armorUpgrade !== undefined) {
       run.lastKnownArmorUpgrade = state.armorUpgrade;
     }
+    if (state.hasteLevel !== undefined) {
+      run.lastKnownHasteLevel = state.hasteLevel;
+    }
   }
 
   private hydrateKnownCharacterState(run: BotRunState, state: ParsedGameState): void {
@@ -2691,6 +2709,9 @@ class BotRunner {
     }
     if (state.className === undefined && run.lastKnownClassName !== undefined) {
       state.className = run.lastKnownClassName;
+    }
+    if (state.hasteLevel === undefined && run.lastKnownHasteLevel !== undefined) {
+      state.hasteLevel = run.lastKnownHasteLevel;
     }
   }
 
@@ -2771,6 +2792,9 @@ class BotRunner {
     const hasteLevel = visibleHaste ? Number(visibleHaste[1]) : undefined;
     const hasteCap = visibleHaste ? Number(visibleHaste[2]) : tuning.maxHasteLevel;
     const hasteCost = visibleHaste ? Number(visibleHaste[3]) : undefined;
+    if (run && hasteLevel !== undefined) {
+      run.lastKnownHasteLevel = hasteLevel;
+    }
 
     if (weaponUpgrade < tuning.maxWeaponUpgrade && gold >= weaponCost) {
       return { label: "buy weapon upgrade", command: "/buy 1" };
@@ -2794,15 +2818,22 @@ class BotRunner {
       return false;
     }
     const gold = state.gold ?? run.lastKnownGold ?? 0;
-    if (gold < run.tuning.upgradeCostBaseGold) {
-      return false;
-    }
     const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade ?? 0;
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade ?? 0;
+    const hasteLevel = state.hasteLevel ?? run.lastKnownHasteLevel ?? 0;
+    const canAffordKnownUpgrade =
+      (weaponUpgrade < run.tuning.maxWeaponUpgrade &&
+        gold >= run.tuning.upgradeCostBaseGold * (weaponUpgrade + 1)) ||
+      (armorUpgrade < run.tuning.maxArmorUpgrade &&
+        gold >= run.tuning.upgradeCostBaseGold * (armorUpgrade + 1)) ||
+      (hasteLevel < run.tuning.maxHasteLevel && gold >= this.estimatedHasteCost(hasteLevel));
+    if (!canAffordKnownUpgrade) {
+      return false;
+    }
     if (
       weaponUpgrade >= run.tuning.maxWeaponUpgrade &&
       armorUpgrade >= run.tuning.maxArmorUpgrade &&
-      run.tuning.maxHasteLevel <= 0
+      hasteLevel >= run.tuning.maxHasteLevel
     ) {
       return false;
     }
@@ -2810,6 +2841,10 @@ class BotRunner {
       return false;
     }
     return true;
+  }
+
+  private estimatedHasteCost(currentLevel: number): number {
+    return Math.max(100, (currentLevel + 1) * 100);
   }
 
   private isMerchantShopOpen(state: ParsedGameState): boolean {
@@ -3813,11 +3848,15 @@ function hydrateWorldStatsFromBotSummary(stats: WorldCharacterStats, botSummary:
   hydrated.gold ??= numberValue(knownState.gold);
   const weaponUpgrade = numberValue(knownState.weaponUpgrade);
   const armorUpgrade = numberValue(knownState.armorUpgrade);
+  const hasteLevel = numberValue(knownState.hasteLevel);
   if (!hydrated.weapon && weaponUpgrade !== undefined) {
     hydrated.weapon = `Rusty Sword +${weaponUpgrade}`;
   }
   if (!hydrated.armor && armorUpgrade !== undefined) {
     hydrated.armor = `Armor +${armorUpgrade}`;
+  }
+  if (!hydrated.haste && hasteLevel !== undefined) {
+    hydrated.haste = `Lvl ${hasteLevel}`;
   }
   return hydrated;
 }
@@ -3861,11 +3900,14 @@ function inferWorldObjective(
   const bossGate = numberValue(tuning.questBossMinLevel) ?? 4;
   const weaponGate = numberValue(tuning.questBossMinWeaponUpgrade) ?? 0;
   const armorGate = numberValue(tuning.questBossMinArmorUpgrade) ?? 0;
+  const hasteGate = numberValue(tuning.questBossMinHasteLevel) ?? 0;
   const weaponUpgrade = parseUpgrade(stats.weapon);
   const armorUpgrade = parseUpgrade(stats.armor);
+  const hasteLevel = parseHasteLevel(stats.haste);
   const gearReady =
     (weaponUpgrade === undefined || weaponUpgrade >= weaponGate) &&
-    (armorUpgrade === undefined || armorUpgrade >= armorGate);
+    (armorUpgrade === undefined || armorUpgrade >= armorGate) &&
+    (hasteGate <= 0 || (hasteLevel !== undefined && hasteLevel >= hasteGate));
   const inTown = Boolean(mapName && /Town|Abbey/i.test(mapName));
   const bossVisible = entities.some((entity) => entity.kind === "boss") || /Shadow Overlord/i.test(stats.target ?? "");
 
@@ -3904,10 +3946,12 @@ function buildWorldProgression(
   const levelGate = numberValue(tuning.questBossMinLevel) ?? 4;
   const weaponGate = numberValue(tuning.questBossMinWeaponUpgrade) ?? 0;
   const armorGate = numberValue(tuning.questBossMinArmorUpgrade) ?? 0;
+  const hasteGate = numberValue(tuning.questBossMinHasteLevel) ?? 0;
   const minFightHp = numberValue(tuning.questBossMinFightHpRatio) ?? 0.3;
   const level = stats.level ?? 0;
   const weaponUpgrade = parseUpgrade(stats.weapon);
   const armorUpgrade = parseUpgrade(stats.armor);
+  const hasteLevel = parseHasteLevel(stats.haste);
   const hpRatio = stats.hp?.ratio ?? 0;
   const questReady = worldQuestLooksAccepted(stats, logs);
   const target = stats.target ?? "";
@@ -3929,6 +3973,16 @@ function buildWorldProgression(
       value: stats.armor ? `${stats.armor} / +${armorGate}` : "unknown",
       status: armorUpgrade === undefined || armorUpgrade >= armorGate ? "ready" : "warn"
     },
+    ...(hasteGate > 0 || stats.haste
+      ? [
+          {
+            label: "Haste",
+            value: stats.haste ? `${stats.haste} / L${hasteGate}` : `unknown / L${hasteGate}`,
+            status:
+              hasteGate <= 0 || (hasteLevel !== undefined && hasteLevel >= hasteGate) ? "ready" : "warn"
+          } satisfies WorldProgressionGate
+        ]
+      : []),
     {
       label: "Quest",
       value: stats.quest || (questReady ? "Elite Slayer" : "unknown"),
@@ -4068,6 +4122,11 @@ function parseUpgrade(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function parseHasteLevel(value: string | undefined): number | undefined {
+  const parsed = Number(value?.match(/(?:Lvl\s*)?(\d+)/i)?.[1]);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function clampInteger(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) {
     return min;
@@ -4147,6 +4206,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "questBossMinLevel");
   setTuningNumber(tuning, source, "questBossMinWeaponUpgrade");
   setTuningNumber(tuning, source, "questBossMinArmorUpgrade");
+  setTuningNumber(tuning, source, "questBossMinHasteLevel");
   setTuningNumber(tuning, source, "earlyBossAvoidPlayerLevel");
   setTuningNumber(tuning, source, "earlyBossAvoidDistance");
   setTuningNumber(tuning, source, "earlyBossContactDistance");
@@ -4240,6 +4300,13 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       overrides,
       "questBossMinArmorUpgrade",
       "TUICRAFT_QUEST_BOSS_MIN_ARMOR_UPGRADE",
+      0,
+      20
+    ),
+    questBossMinHasteLevel: tuneInteger(
+      overrides,
+      "questBossMinHasteLevel",
+      "TUICRAFT_QUEST_BOSS_MIN_HASTE_LEVEL",
       0,
       20
     ),
@@ -4370,7 +4437,10 @@ function buildJudgePayload(
     (state.weaponUpgrade === undefined || state.weaponUpgrade >= tuning.questBossMinWeaponUpgrade);
   const armorReady =
     !state.armorMissing && (state.armorUpgrade === undefined || state.armorUpgrade >= tuning.questBossMinArmorUpgrade);
-  const gearReady = weaponReady && armorReady;
+  const hasteReady =
+    tuning.questBossMinHasteLevel <= 0 ||
+    (state.hasteLevel !== undefined && state.hasteLevel >= tuning.questBossMinHasteLevel);
+  const gearReady = weaponReady && armorReady && hasteReady;
   const lowLevelSafeTargetHealHpRatio =
     state.level < tuning.eliteQuestMinLevel
       ? Math.max(tuning.safeTargetHealHpRatio, tuning.lowLevelSafeTargetHealHpRatio)
@@ -4399,7 +4469,7 @@ function buildJudgePayload(
       "Missing armor alone is not a retreat reason for full-health level-appropriate mob farming, especially at level 1.",
       `Before level ${tuning.eliteQuestMinLevel}, treat ${tuning.lowLevelSafeTargetHealHpRatio} as the regular-fight HP floor and avoid more than ${tuning.maxAdjacentRegularMobs} adjacent regular mob.`,
       "If the visible regular target HP resets upward or stalls, prefer a reset/heal path over repeatedly attacking the same situation.",
-      `Prefer boss progress only when bossEligible is true: accepted Elite Slayer, level at least ${tuning.questBossMinLevel}, weapon upgrade at least ${tuning.questBossMinWeaponUpgrade}, armor upgrade at least ${tuning.questBossMinArmorUpgrade}, and HP above ${tuning.questBossMinFightHpRatio}.`,
+      `Prefer boss progress only when bossEligible is true: accepted Elite Slayer, level at least ${tuning.questBossMinLevel}, weapon upgrade at least ${tuning.questBossMinWeaponUpgrade}, armor upgrade at least ${tuning.questBossMinArmorUpgrade}, Haste level at least ${tuning.questBossMinHasteLevel}, and HP above ${tuning.questBossMinFightHpRatio}.`,
       `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, below the low-level regular-fight floor, the target is over-level, a boss is adjacent/targeted, multiple mobs are adjacent, target HP has reset/stalled, or no safe progress candidate exists.`,
       "A distant visible boss is not a retreat reason when safeMobFarming is true.",
       "Do not choose regular mob farming over a visible boss when bossEligible is true, unless HP is below the configured boss threshold.",
@@ -4422,6 +4492,7 @@ function buildJudgePayload(
         questBossMinLevel: tuning.questBossMinLevel,
         questBossMinWeaponUpgrade: tuning.questBossMinWeaponUpgrade,
         questBossMinArmorUpgrade: tuning.questBossMinArmorUpgrade,
+        questBossMinHasteLevel: tuning.questBossMinHasteLevel,
         maxHasteLevel: tuning.maxHasteLevel,
         safeTargetHealHpRatio: tuning.safeTargetHealHpRatio,
         lowLevelSafeTargetHealHpRatio: tuning.lowLevelSafeTargetHealHpRatio,
@@ -4441,6 +4512,7 @@ function buildJudgePayload(
       gold: state.gold,
       weaponUpgrade: state.weaponUpgrade,
       armorUpgrade: state.armorUpgrade,
+      hasteLevel: state.hasteLevel,
       weaponMissing: state.weaponMissing,
       armorMissing: state.armorMissing,
       acceptedEliteQuest,
