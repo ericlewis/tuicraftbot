@@ -1394,7 +1394,6 @@ class BotRunner {
       const shouldFarmSavedDepth = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
-          Date.now() >= run.savedDepthBlockedUntil &&
           savedDepthFarmLevel !== undefined &&
           state.mapLevel &&
           state.mapLevel < savedDepthFarmLevel
@@ -1618,7 +1617,7 @@ class BotRunner {
           state.targetLevel &&
           state.targetLevel > allowedTargetLevel
       );
-      if ((bossBlockingEntry || overLevelEliteBossTarget) && hpRatio > 0.9 && run.bossChipMoves < 1) {
+      if ((bossBlockingEntry || overLevelEliteBossTarget) && !questBossRun && hpRatio > 0.9 && run.bossChipMoves < 1) {
         run.bossChipMoves += 1;
         return { label: "chip blocking boss", key: "space" };
       }
@@ -1658,6 +1657,9 @@ class BotRunner {
         nearestBoss !== undefined &&
         nearestBoss <= run.tuning.earlyBossContactDistance
       ) {
+        if (questBossRun && !this.hasQuestBossReadiness(run, state)) {
+          return { label: "bail from under-geared boss contact", command: "/stuck" };
+        }
         if (hpRatio > 0.85 && run.bossLureMoves < 1) {
           const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
           if (awayStep) {
@@ -1829,6 +1831,7 @@ class BotRunner {
       action.label === "bail from blocked saved-depth boss" ||
       action.label === "bail to buy upgrade" ||
       action.label === "bail from unsafe dungeon route" ||
+      action.label === "bail from under-geared boss contact" ||
       action.label === "bail from multi-mob low-level fight" ||
       action.label === "bail from nearby boss before farming" ||
       action.label === "bail from early boss contact" ||
@@ -2056,8 +2059,7 @@ class BotRunner {
       if (
         !this.hasQuestBossReadiness(run, state) &&
         state.maxDepth &&
-        state.maxDepth > 1 &&
-        Date.now() >= run.savedDepthBlockedUntil
+        state.maxDepth > 1
       ) {
         return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
       }
