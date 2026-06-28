@@ -691,6 +691,7 @@ type BotRunState = {
   starterArmorChecked: boolean;
   bossLureMoves: number;
   bossChipMoves: number;
+  savedDepthBlockedUntil: number;
   mageNeedsManaRest: boolean;
   mageManaRestUntil: number;
   lastKnownMana?: { current: number; max: number };
@@ -835,6 +836,7 @@ class BotRunner {
       starterArmorChecked: false,
       bossLureMoves: 0,
       bossChipMoves: 0,
+      savedDepthBlockedUntil: 0,
       mageNeedsManaRest: false,
       mageManaRestUntil: 0,
       lastKnownMana: undefined,
@@ -1386,6 +1388,7 @@ class BotRunner {
       const shouldFarmSavedDepth = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
+          Date.now() >= run.savedDepthBlockedUntil &&
           state.maxDepth &&
           state.maxDepth > 1 &&
           state.mapLevel &&
@@ -1393,6 +1396,20 @@ class BotRunner {
       );
       if (shouldFarmSavedDepth) {
         return { label: "bail to saved depth for gear farm", command: "/stuck" };
+      }
+      const savedDepthBossBlocked = Boolean(
+        questBossRun &&
+          !this.hasQuestBossReadiness(run, state) &&
+          state.maxDepth &&
+          state.maxDepth > 1 &&
+          state.mapLevel &&
+          state.mapLevel >= Math.max(2, state.level - 2) &&
+          (state.targetIsBoss ||
+            (nearestBoss !== undefined && nearestBoss <= run.tuning.earlyBossContactDistance))
+      );
+      if (savedDepthBossBlocked) {
+        run.savedDepthBlockedUntil = Date.now() + 180_000;
+        return { label: "bail from blocked saved-depth boss", command: "/stuck" };
       }
       const lowLevelHealFloor = preEliteFarming ? 0.7 : 0;
       const safeTargetHealThreshold = preEliteFarming
@@ -2027,7 +2044,12 @@ class BotRunner {
 
   private savedPortalAction(run: BotRunState, state: ParsedGameState): BotAction {
     if ((run.questAccepted || state.questInProgress) && state.level >= 4) {
-      if (!this.hasQuestBossReadiness(run, state) && state.maxDepth && state.maxDepth > 1) {
+      if (
+        !this.hasQuestBossReadiness(run, state) &&
+        state.maxDepth &&
+        state.maxDepth > 1 &&
+        Date.now() >= run.savedDepthBlockedUntil
+      ) {
         return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
       }
       return { label: "enter quest dungeon portal", command: "/enter 1" };
