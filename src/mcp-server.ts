@@ -169,9 +169,9 @@ server.registerTool(
     description: "Start a bounded bot run. Uses BOT_ACCOUNT_* environment variables unless explicit credentials are supplied.",
     inputSchema: {
       mode: z.enum(["smoke", "explore", "stress", "win"]).default("win"),
-      durationSeconds: z.number().int().min(5).max(3600).default(600),
+      durationSeconds: z.number().int().min(5).max(21600).default(600),
       intervalMs: z.number().int().min(100).max(10000).default(1200),
-      maxActions: z.number().int().min(1).max(5000).default(2500),
+      maxActions: z.number().int().min(1).max(50000).default(2500),
       maxReconnects: z.number().int().min(0).max(100).default(4),
       judgeEnabled: z.boolean().optional().describe("Defaults to true for win-mode runs."),
       judgeModels: z.string().optional(),

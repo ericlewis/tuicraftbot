@@ -879,15 +879,17 @@ class BotRunner {
       options.judgeEnabled ?? readBooleanEnv("TUICRAFT_JUDGE_ENABLED", defaultJudgeEnabled(mode));
     const chatEnabled = options.chatEnabled ?? readBooleanEnv("TUICRAFT_CHAT_ENABLED", true);
     const tuning = buildBotTuning(options.tuning);
+    const maxDurationMs = mode === "win" ? 21_600_000 : 3_600_000;
+    const maxActionBudget = mode === "win" ? 50_000 : 5_000;
     const run: BotRunState = {
       id: `bot-${Date.now().toString(36)}-${suffix}`,
       mode,
       status: "running",
       startedAt: new Date().toISOString(),
       startedMs: Date.now(),
-      durationMs: clampInteger(options.durationMs ?? defaults.durationMs, 5_000, 3_600_000),
+      durationMs: clampInteger(options.durationMs ?? defaults.durationMs, 5_000, maxDurationMs),
       intervalMs: clampInteger(options.intervalMs ?? defaults.intervalMs, 100, 10_000),
-      maxActions: clampInteger(options.maxActions ?? defaults.maxActions, 1, 5_000),
+      maxActions: clampInteger(options.maxActions ?? defaults.maxActions, 1, maxActionBudget),
       maxReconnects: clampInteger(options.maxReconnects ?? defaultReconnectLimit(mode), 0, 100),
       actionCount: 0,
       accountUsername: requestedUsername || `codex${Date.now().toString(36).slice(-7)}${suffix.slice(0, 2)}`,
