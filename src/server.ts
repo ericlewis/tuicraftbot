@@ -700,6 +700,7 @@ type BotRunState = {
   lastKnownMana?: { current: number; max: number };
   lastKnownLevel?: number;
   lastKnownClassName?: string;
+  lastKnownXp?: { current: number; max: number };
   lastKnownGold?: number;
   lastKnownWeaponUpgrade?: number;
   lastKnownArmorUpgrade?: number;
@@ -846,6 +847,7 @@ class BotRunner {
       lastKnownMana: undefined,
       lastKnownLevel: undefined,
       lastKnownClassName: undefined,
+      lastKnownXp: undefined,
       lastKnownGold: undefined,
       lastKnownWeaponUpgrade: undefined,
       lastKnownArmorUpgrade: undefined,
@@ -2158,10 +2160,11 @@ class BotRunner {
     if (run.tuning.nearLevelFallbackXpRemaining <= 0 || state.level >= run.tuning.questBossMinLevel) {
       return false;
     }
-    if (!state.xp) {
+    const xp = state.xp ?? run.lastKnownXp;
+    if (!xp) {
       return false;
     }
-    const remainingXp = state.xp.max - state.xp.current;
+    const remainingXp = xp.max - xp.current;
     return remainingXp > 0 && remainingXp <= run.tuning.nearLevelFallbackXpRemaining;
   }
 
@@ -2369,6 +2372,9 @@ class BotRunner {
     }
     if (state.mana !== undefined) {
       run.lastKnownMana = state.mana;
+    }
+    if (state.xp !== undefined) {
+      run.lastKnownXp = state.xp;
     }
     if (state.gold !== undefined) {
       run.lastKnownGold = state.gold;
