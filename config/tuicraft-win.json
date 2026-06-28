@@ -30,10 +30,10 @@
     "earlyBossAvoidPlayerLevel": 3,
     "earlyBossAvoidDistance": 1,
     "earlyBossContactDistance": 1,
-    "questBossPreEngageRetreatHpRatio": 0.55,
-    "questBossEngagedRetreatHpRatio": 0.45,
-    "questBossMinFightHpRatio": 0.55,
-    "judgeBossHpRatio": 0.45,
-    "judgeRetreatCandidateHpRatio": 0.65
+    "questBossPreEngageRetreatHpRatio": 0.32,
+    "questBossEngagedRetreatHpRatio": 0.25,
+    "questBossMinFightHpRatio": 0.5,
+    "judgeBossHpRatio": 0.25,
+    "judgeRetreatCandidateHpRatio": 0.4
   }
 }
