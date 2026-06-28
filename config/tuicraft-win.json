@@ -15,7 +15,7 @@
     "attackCooldownMs": 1800,
     "spellCooldownMs": 1200,
     "mageMeleeFinishHp": 50,
-    "lowHpFinishHpRatio": 0.45,
+    "lowHpFinishHpRatio": 0.35,
     "safeTargetHealHpRatio": 0.55,
     "lowLevelSafeTargetHealHpRatio": 0.65,
     "unsafeTargetHealHpRatio": 0.55,

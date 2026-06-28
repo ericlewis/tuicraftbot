@@ -216,7 +216,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   attackCooldownMs: 3_000,
   spellCooldownMs: 1_500,
   mageMeleeFinishHp: 0,
-  lowHpFinishHpRatio: 0.45,
+  lowHpFinishHpRatio: 0.35,
   mageManaRestMs: 15_000,
   maxAdjacentRegularMobs: 1,
   nearLevelFallbackXpRemaining: 0,
