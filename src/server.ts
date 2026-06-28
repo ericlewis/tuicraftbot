@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { Terminal } from "@xterm/headless";
 import { Client, type ClientChannel } from "ssh2";
+import { WORLD_HTML } from "./world-html";
 
 type BridgeStatus = "idle" | "connecting" | "connected" | "closed" | "error";
 type Direction = "from-game" | "to-game";
@@ -130,6 +131,58 @@ type BotRunSummary = {
     maxMessages: number;
   };
   tuning?: BotTuningConfig;
+};
+
+type WorldMeter = {
+  current: number;
+  max: number;
+  ratio: number;
+};
+
+type WorldCharacterStats = {
+  name?: string;
+  level?: number;
+  className?: string;
+  hp?: WorldMeter;
+  mana?: WorldMeter;
+  xp?: WorldMeter;
+  gold?: number;
+  maxDepth?: number;
+  swing?: string;
+  weapon?: string;
+  armor?: string;
+  haste?: string;
+  quest?: string;
+  target?: string;
+  targetHp?: WorldMeter;
+};
+
+type WorldEntityKind = "player" | "mob" | "boss" | "merchant" | "quest" | "inn" | "dungeon" | "chest" | "portal";
+
+type WorldEntity = {
+  kind: WorldEntityKind;
+  marker: string;
+  label: string;
+  x: number;
+  y: number;
+};
+
+type WorldGrid = {
+  width: number;
+  height: number;
+  rows: string[];
+};
+
+type WorldSnapshot = {
+  ts: string;
+  frame: number;
+  mapName?: string;
+  objective: string;
+  stats: WorldCharacterStats;
+  grid: WorldGrid;
+  entities: WorldEntity[];
+  bot: BotRunSummary;
+  logs: BotLog[];
 };
 
 class RingBuffer<T> {
@@ -3086,6 +3139,9 @@ async function handleRequest(request: Request): Promise<Response> {
     if (request.method === "GET" && url.pathname === "/") {
       return html(INDEX_HTML);
     }
+    if (request.method === "GET" && url.pathname === "/world") {
+      return html(WORLD_HTML);
+    }
     if (request.method === "GET" && url.pathname === "/api/session") {
       return json(bridge.getSummary());
     }
@@ -3103,6 +3159,9 @@ async function handleRequest(request: Request): Promise<Response> {
     }
     if (request.method === "GET" && url.pathname === "/api/screen") {
       return json(bridge.getScreen());
+    }
+    if (request.method === "GET" && url.pathname === "/api/world") {
+      return json(buildWorldSnapshot(bridge.getScreen(), bot.getSummary(), bot.getLogs(readLimit(url, 80))));
     }
     if (request.method === "GET" && url.pathname === "/api/raw") {
       return json({ chunks: bridge.getRaw(readLimit(url, 50)) });
@@ -3286,6 +3345,231 @@ function readBooleanEnv(name: string, fallback: boolean): boolean {
 
 function readLimit(url: URL, fallback: number): number {
   return clampInteger(Number(url.searchParams.get("limit") ?? fallback), 1, 500);
+}
+
+function buildWorldSnapshot(screen: ScreenSnapshot, botSummary: BotRunSummary, logs: BotLog[]): WorldSnapshot {
+  const text = screen.text || screen.lines.join("\n");
+  const mapName = text.match(/\[Map:\s*([^\]]+)\]/)?.[1]?.trim();
+  const { grid, entities } = parseWorldGrid(screen.lines);
+  const stats = parseWorldCharacterStats(text);
+  return {
+    ts: screen.ts,
+    frame: screen.frame,
+    mapName,
+    objective: inferWorldObjective(mapName, stats, entities, botSummary),
+    stats,
+    grid,
+    entities,
+    bot: botSummary,
+    logs
+  };
+}
+
+function parseWorldGrid(lines: string[]): { grid: WorldGrid; entities: WorldEntity[] } {
+  const panelRows: string[] = [];
+  let inMapPanel = false;
+
+  for (const line of lines) {
+    if (line.includes("[Map:")) {
+      inMapPanel = true;
+      continue;
+    }
+    if (inMapPanel && line.startsWith("└")) {
+      break;
+    }
+    if (!inMapPanel) {
+      continue;
+    }
+    const leftPanel = line.split("││")[0] ?? line;
+    if (!leftPanel.startsWith("│")) {
+      continue;
+    }
+    const end = leftPanel.lastIndexOf("│");
+    const inner = end > 0 ? leftPanel.slice(1, end) : leftPanel.slice(1);
+    if (/[█#.·@SQIDCBMP]/.test(inner)) {
+      panelRows.push(inner);
+    }
+  }
+
+  const bounds = mapContentBounds(panelRows);
+  if (!bounds) {
+    return { grid: { width: 0, height: 0, rows: [] }, entities: [] };
+  }
+
+  const width = bounds.maxX - bounds.minX + 1;
+  const rows = panelRows.map((row) => row.slice(bounds.minX, bounds.maxX + 1).padEnd(width, " "));
+  const entities = parseWorldEntities(rows);
+  return {
+    grid: {
+      width,
+      height: rows.length,
+      rows
+    },
+    entities
+  };
+}
+
+function mapContentBounds(rows: string[]): { minX: number; maxX: number } | undefined {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const row of rows) {
+    for (let index = 0; index < row.length; index += 1) {
+      if (isMapContentChar(row[index])) {
+        minX = Math.min(minX, index);
+        maxX = Math.max(maxX, index);
+      }
+    }
+  }
+  if (!Number.isFinite(minX) || maxX < minX) {
+    return undefined;
+  }
+  return { minX, maxX };
+}
+
+function isMapContentChar(char: string | undefined): boolean {
+  return Boolean(char && /[█#.·@SQIDCBMP]/.test(char));
+}
+
+function parseWorldEntities(rows: string[]): WorldEntity[] {
+  const entities: WorldEntity[] = [];
+  for (let y = 0; y < rows.length; y += 1) {
+    const row = rows[y];
+    for (let x = 0; x < row.length; x += 1) {
+      const entity = worldEntityForMarker(row[x], x, y);
+      if (entity) {
+        entities.push(entity);
+      }
+    }
+  }
+  return entities;
+}
+
+function worldEntityForMarker(marker: string, x: number, y: number): WorldEntity | undefined {
+  const kindByMarker: Record<string, WorldEntityKind> = {
+    "@": "player",
+    M: "mob",
+    B: "boss",
+    S: "merchant",
+    Q: "quest",
+    I: "inn",
+    D: "dungeon",
+    C: "chest",
+    P: "portal"
+  };
+  const labelByMarker: Record<string, string> = {
+    "@": "Player",
+    M: "Mob",
+    B: "Boss",
+    S: "Merchant",
+    Q: "Quest",
+    I: "Inn",
+    D: "Dungeon",
+    C: "Chest",
+    P: "Portal"
+  };
+  const kind = kindByMarker[marker];
+  if (!kind) {
+    return undefined;
+  }
+  return {
+    kind,
+    marker,
+    label: labelByMarker[marker],
+    x,
+    y
+  };
+}
+
+function parseWorldCharacterStats(text: string): WorldCharacterStats {
+  const character = text.match(/([A-Za-z][A-Za-z0-9_-]+)\s+Lvl\s+(\d+)\s+\(([^)]+)\)/);
+  const targetPanel = text.match(/--- Target ---([\s\S]*?)(?:--- Legend ---|Nearby:|┌─ Combat Log|$)/)?.[1] ?? "";
+  const targetName = targetPanel.match(/([A-Za-z][A-Za-z0-9 ':-]*?\s+\(Lvl\s+\d+\)[^\n│]*)/)?.[1]?.trim();
+  return {
+    name: character?.[1],
+    level: character?.[2] ? Number(character[2]) : undefined,
+    className: character?.[3],
+    hp: parseWorldMeter(text.match(/(?:Your\s+)?HP:\s*([0-9]+)\/([0-9]+)/)?.slice(1, 3)),
+    mana: parseWorldMeter(text.match(/\bMana:\s*([0-9]+)\/([0-9]+)/)?.slice(1, 3)),
+    xp: parseWorldMeter(text.match(/\bXP:\s*([0-9]+)\/([0-9]+)/)?.slice(1, 3)),
+    gold: parseNumberMatch(text.match(/\b(?:GP|Gold):\s*([0-9]+)\s*g?/i)?.[1]),
+    maxDepth: parseNumberMatch(text.match(/\bMax Depth:\s*([0-9]+)/i)?.[1]),
+    swing: text.match(/\bSwing:\s*([^\n│]+)/)?.[1]?.trim(),
+    weapon: text.match(/\bWpn:\s*([^\n│]+)/)?.[1]?.trim(),
+    armor: text.match(/\bArm:\s*([^\n│]+)/)?.[1]?.trim(),
+    haste: text.match(/\bHst:\s*([^\n│]+)/)?.[1]?.trim(),
+    quest: text.match(/\bQuest:\s*([^\n│]+)/)?.[1]?.trim(),
+    target: targetName,
+    targetHp: parseWorldMeter(targetPanel.match(/\bHP:\s*([0-9]+)\/([0-9]+)/i)?.slice(1, 3))
+  };
+}
+
+function parseWorldMeter(values: string[] | undefined): WorldMeter | undefined {
+  if (!values || values.length < 2) {
+    return undefined;
+  }
+  const current = Number(values[0]);
+  const max = Number(values[1]);
+  if (!Number.isFinite(current) || !Number.isFinite(max) || max <= 0) {
+    return undefined;
+  }
+  return {
+    current,
+    max,
+    ratio: clampNumber(current / max, 0, 1)
+  };
+}
+
+function parseNumberMatch(value: string | undefined): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function inferWorldObjective(
+  mapName: string | undefined,
+  stats: WorldCharacterStats,
+  entities: WorldEntity[],
+  botSummary: BotRunSummary
+): string {
+  const quest = stats.quest ?? "";
+  const tuning = asPlainRecord(botSummary.tuning);
+  const bossGate = numberValue(tuning.questBossMinLevel) ?? 4;
+  const weaponGate = numberValue(tuning.questBossMinWeaponUpgrade) ?? 0;
+  const armorGate = numberValue(tuning.questBossMinArmorUpgrade) ?? 0;
+  const weaponUpgrade = parseUpgrade(stats.weapon);
+  const armorUpgrade = parseUpgrade(stats.armor);
+  const gearReady =
+    (weaponUpgrade === undefined || weaponUpgrade >= weaponGate) &&
+    (armorUpgrade === undefined || armorUpgrade >= armorGate);
+  const inTown = Boolean(mapName && /Town|Abbey/i.test(mapName));
+  const bossVisible = entities.some((entity) => entity.kind === "boss") || /Shadow Overlord/i.test(stats.target ?? "");
+
+  if (botSummary.status !== "running") {
+    return "Bot is not running";
+  }
+  if (/Ready|Complete/i.test(quest)) {
+    return "Turn in Elite Slayer reward";
+  }
+  if (/Elite Slayer/i.test(quest) && stats.level !== undefined && stats.level < bossGate) {
+    return `Farm to level ${bossGate} before Shadow Overlord`;
+  }
+  if (/Elite Slayer/i.test(quest) && !gearReady) {
+    return `Farm gear toward +${weaponGate} weapon and +${armorGate} armor`;
+  }
+  if (/Elite Slayer/i.test(quest) && bossVisible) {
+    return "Shadow Overlord is visible; judge boss engagement carefully";
+  }
+  if (/Elite Slayer/i.test(quest) && inTown) {
+    return "Return to dungeon for Elite Slayer progression";
+  }
+  if (stats.target) {
+    return `Resolve target: ${stats.target}`;
+  }
+  return "Observe live progression";
+}
+
+function parseUpgrade(value: string | undefined): number | undefined {
+  const parsed = Number(value?.match(/\+(\d+)/)?.[1]);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function clampInteger(value: number, min: number, max: number): number {
@@ -4050,7 +4334,7 @@ const INDEX_HTML = String.raw`<!doctype html>
   <main>
     <section class="terminal">
       <header>
-        <h1>World of TUICraft</h1>
+        <h1>World of TUICraft <a href="/world">World View</a></h1>
         <span class="status"><span id="dot" class="dot"></span><span id="status">starting</span></span>
       </header>
       <pre id="screen"></pre>

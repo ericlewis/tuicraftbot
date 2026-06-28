@@ -32,6 +32,17 @@ server.registerResource(
 );
 
 server.registerResource(
+  "tuicraft-world",
+  "tuicraft://world",
+  {
+    title: "TUICraft World Snapshot",
+    description: "Parsed tactical map, character meters, entities, bot status, and recent automation log.",
+    mimeType: "application/json"
+  },
+  async () => jsonResource("tuicraft://world", await apiGet(apiBase(), "/api/world?limit=80"))
+);
+
+server.registerResource(
   "tuicraft-session",
   "tuicraft://session",
   {
@@ -125,6 +136,18 @@ server.registerTool(
     }
   },
   async ({ logLimit }) => textResult(await getBotSnapshot(apiBase(), logLimit))
+);
+
+server.registerTool(
+  "tuicraft_get_world",
+  {
+    title: "Get TUICraft world snapshot",
+    description: "Read parsed map tiles, semantic entities, character meters, bot status, and recent logs.",
+    inputSchema: {
+      logLimit: z.number().int().min(1).max(500).default(80)
+    }
+  },
+  async ({ logLimit }) => textResult(await apiGet(apiBase(), `/api/world?limit=${logLimit}`))
 );
 
 server.registerTool(
