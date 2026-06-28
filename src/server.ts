@@ -2668,7 +2668,7 @@ class BotRunner {
           screen.text
         ),
       questComplete:
-        /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest complete|Reward claimed|Quest:\s*Elite Slayer\s*\(Ready!\)/i.test(
+        /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest (?:complete|Objective Completed)|Reward claimed|Quest:\s*Elite Slayer\s*\(Ready!\)/i.test(
           screen.text
         ),
       noActiveQuest: /\bNo active quest\b/i.test(screen.text),
