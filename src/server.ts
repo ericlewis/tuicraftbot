@@ -1640,6 +1640,14 @@ class BotRunner {
         return { label: "bail to saved depth for gear farm", command: "/stuck" };
       }
       if (questBossRun && !questBossReady && state.targetIsBoss && !savedDepthFarmingDungeon) {
+        const mobStep = this.stepToward(state, ["M"], "onto", {
+          blockedChars: ["D", "P"],
+          avoidAdjacentKinds: ["B"],
+          avoidRadius: 3
+        });
+        if (mobStep && hpRatio > run.tuning.safeTargetHealHpRatio) {
+          return { label: "seek mob away from under-ready boss", key: mobStep };
+        }
         run.savedDepthBlockedUntil = Date.now() + 60_000;
         return { label: "bail from under-ready boss target", command: "/stuck" };
       }
