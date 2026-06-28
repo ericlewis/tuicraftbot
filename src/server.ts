@@ -1493,6 +1493,13 @@ class BotRunner {
         selectedSafeRegularTarget && isMageRun && hasSpellMana
       );
       const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
+      const bossBreathCharging = /begins inhaling|fiery blast is charging/i.test(state.text);
+      if (questBossRun && bossBreathCharging && nearestBoss !== undefined) {
+        const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+        if (awayStep) {
+          return { label: "evade boss fire breath", key: awayStep };
+        }
+      }
       const mageCanFinishRegularTarget = Boolean(
         canCastFireball &&
           state.targetHp &&
@@ -1926,6 +1933,7 @@ class BotRunner {
       action.label === "wait to finish crowded target" ||
       action.label === "cast fireball at elite" ||
       action.label === "wait for elite spell cooldown" ||
+      action.label === "evade boss fire breath" ||
       action.label === "cast fireball at boss" ||
       action.label === "wait for boss spell cooldown" ||
       action.label === "kite boss during spell cooldown" ||
