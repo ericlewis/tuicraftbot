@@ -165,10 +165,11 @@ for the current game economy is `25`.
 
 `/world` is the primary progress surface for a win run. It parses the current
 terminal map into a canvas tactical view with live player movement, threat
-fields, route planning, boss-readiness gates, replay snapshots, and recent bot
-timeline events. Clicking a readiness gate focuses the relevant route target
-such as the inn, merchant, quest board, mobs, or boss. The route panel can step
-one tile at a time when manual input is enabled.
+fields, route planning, route projection, boss-readiness gates, combat effects,
+entity health bars, replay snapshots, and recent bot timeline events. Clicking
+a readiness gate focuses the relevant route target such as the inn, merchant,
+quest board, mobs, or boss. The route panel can step one tile at a time when
+manual input is enabled.
 
 ## State art generator
 

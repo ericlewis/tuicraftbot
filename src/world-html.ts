@@ -516,6 +516,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
           <label class="check"><input id="follow" type="checkbox">Follow</label>
           <label class="check"><input id="labels" type="checkbox" checked>Labels</label>
           <label class="check"><input id="agents" type="checkbox" checked>Agents</label>
+          <label class="check"><input id="projection" type="checkbox" checked>Projection</label>
           <label class="check"><input id="threats" type="checkbox" checked>Threats</label>
           <label class="check"><input id="manual" type="checkbox">Manual input</label>
           <label class="check">Focus
@@ -643,6 +644,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
     const followEl = document.getElementById("follow");
     const labelsEl = document.getElementById("labels");
     const agentsEl = document.getElementById("agents");
+    const projectionEl = document.getElementById("projection");
     const threatsEl = document.getElementById("threats");
     const manualEl = document.getElementById("manual");
     const focusEl = document.getElementById("focus");
@@ -686,6 +688,10 @@ export const WORLD_HTML = String.raw`<!doctype html>
       path: "rgba(66, 198, 255, 0.48)",
       route: "rgba(231, 180, 94, 0.88)",
       routeGlow: "rgba(231, 180, 94, 0.18)",
+      projection: "rgba(231, 180, 94, 0.95)",
+      fire: "rgba(236, 109, 95, 0.86)",
+      heal: "rgba(73, 209, 125, 0.82)",
+      evade: "rgba(66, 198, 255, 0.8)",
       ghost: "rgba(66, 198, 255, 0.28)",
       threatMob: "rgba(236, 109, 95, 0.16)",
       threatBoss: "rgba(176, 131, 255, 0.2)"
@@ -1478,6 +1484,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
       canvas.style.height = height + "px";
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       draw();
+      ensureAnimationLoop();
     }
 
     function draw() {
@@ -1524,8 +1531,12 @@ export const WORLD_HTML = String.raw`<!doctype html>
       }
       state.routePlan = computeRoutePlan(world);
       drawRoute(state.routePlan, cell, offsetX, offsetY);
+      if (projectionEl.checked) {
+        drawRouteProjection(state.routePlan, cell, offsetX, offsetY);
+      }
+      drawActionEffect(world, cell, offsetX, offsetY);
       for (const entity of world.entities || []) {
-        drawEntity(entity, cell, offsetX, offsetY);
+        drawEntity(entity, world, cell, offsetX, offsetY);
       }
       drawPinnedTile(cell, offsetX, offsetY, world);
       if (state.hoverTile) {
@@ -1671,6 +1682,128 @@ export const WORLD_HTML = String.raw`<!doctype html>
       ctx.restore();
     }
 
+    function drawRouteProjection(plan, cell, offsetX, offsetY) {
+      if (state.selectedWorld || !plan || !plan.path || plan.path.length < 2 || plan.status !== "routable") return;
+      const segmentCount = plan.path.length - 1;
+      const base = (performance.now() / 620) % segmentCount;
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      for (let index = 0; index < Math.min(5, segmentCount + 1); index += 1) {
+        const point = routePointAt(plan.path, base + index * 0.72);
+        const alpha = Math.max(0.14, 0.82 - index * 0.13);
+        const cx = offsetX + (point.x + 0.5) * cell;
+        const cy = offsetY + (point.y + 0.5) * cell;
+        const radius = Math.max(2.5, cell * (0.28 - index * 0.025));
+        ctx.fillStyle = "rgba(231, 180, 94, " + alpha.toFixed(3) + ")";
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const head = routePointAt(plan.path, base);
+      const next = routePointAt(plan.path, base + 0.18);
+      drawProjectionArrow(head, next, cell, offsetX, offsetY);
+      ctx.restore();
+    }
+
+    function routePointAt(path, position) {
+      const segmentCount = Math.max(1, path.length - 1);
+      const wrapped = ((position % segmentCount) + segmentCount) % segmentCount;
+      const index = Math.min(path.length - 2, Math.floor(wrapped));
+      const progress = wrapped - index;
+      const from = path[index];
+      const to = path[index + 1];
+      return {
+        x: from.x + (to.x - from.x) * progress,
+        y: from.y + (to.y - from.y) * progress
+      };
+    }
+
+    function drawProjectionArrow(from, to, cell, offsetX, offsetY) {
+      const cx = offsetX + (from.x + 0.5) * cell;
+      const cy = offsetY + (from.y + 0.5) * cell;
+      const tx = offsetX + (to.x + 0.5) * cell;
+      const ty = offsetY + (to.y + 0.5) * cell;
+      const angle = Math.atan2(ty - cy, tx - cx);
+      const size = Math.max(6, cell * 0.5);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.fillStyle = colors.projection;
+      ctx.beginPath();
+      ctx.moveTo(size * 0.65, 0);
+      ctx.lineTo(-size * 0.45, -size * 0.36);
+      ctx.lineTo(-size * 0.18, 0);
+      ctx.lineTo(-size * 0.45, size * 0.36);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawActionEffect(world, cell, offsetX, offsetY) {
+      if (state.selectedWorld || !agentsEl.checked) return;
+      const recent = (world.progression || {}).recentAction || (world.bot || {}).lastAction || {};
+      const action = String(recent.label || "");
+      if (!action) return;
+      const player = findEntity("player", world);
+      if (!player) return;
+      const pulse = (Math.sin(performance.now() / 130) + 1) / 2;
+      if (/fireball|attack|boss|elite/i.test(action)) {
+        const target = actionTarget(world, /boss|shadow/i.test(action + " " + ((world.stats || {}).target || "")));
+        if (target) {
+          drawActionBeam(player, target, /fireball/i.test(action) ? colors.fire : colors.projection, pulse, cell, offsetX, offsetY);
+        }
+      }
+      if (/heal|recover|rest|inn/i.test(action)) {
+        drawPulse(findEntity("player", world), colors.heal, 1.15 + pulse * 0.55, cell, offsetX, offsetY);
+      }
+      if (/evade|kite|bail|retreat|stuck/i.test(action)) {
+        drawPulse(findEntity("player", world), colors.evade, 1.35 + pulse * 0.65, cell, offsetX, offsetY);
+      }
+      if (/buy|sell|merchant|quest|reward/i.test(action)) {
+        const townTarget = /quest|reward/i.test(action) ? findEntity("quest", world) : findEntity("merchant", world);
+        drawPulse(townTarget || player, colors.projection, 1.05 + pulse * 0.45, cell, offsetX, offsetY);
+      }
+    }
+
+    function actionTarget(world, preferBoss) {
+      if (preferBoss) {
+        return nearestEntity(["boss"], world, findEntity("player", world)) || nearestEntity(["mob"], world, findEntity("player", world));
+      }
+      return nearestEntity(["mob"], world, findEntity("player", world)) || nearestEntity(["boss"], world, findEntity("player", world));
+    }
+
+    function drawActionBeam(from, to, color, pulse, cell, offsetX, offsetY) {
+      const sx = offsetX + (from.x + 0.5) * cell;
+      const sy = offsetY + (from.y + 0.5) * cell;
+      const tx = offsetX + (to.x + 0.5) * cell;
+      const ty = offsetY + (to.y + 0.5) * cell;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, cell * (0.1 + pulse * 0.08));
+      ctx.setLineDash([Math.max(3, cell * 0.28), Math.max(3, cell * 0.18)]);
+      ctx.lineDashOffset = -performance.now() / 55;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      drawPulse(to, color, 0.9 + pulse * 0.55, cell, offsetX, offsetY);
+      ctx.restore();
+    }
+
+    function drawPulse(entity, color, scale, cell, offsetX, offsetY) {
+      if (!entity) return;
+      const cx = offsetX + (entity.x + 0.5) * cell;
+      const cy = offsetY + (entity.y + 0.5) * cell;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, cell * 0.09);
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(6, cell * scale), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     function drawIntentArrow(from, to, cell, offsetX, offsetY) {
       const startX = offsetX + (from.x + 0.5) * cell;
       const startY = offsetY + (from.y + 0.5) * cell;
@@ -1712,7 +1845,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
       ctx.strokeRect(px + 2, py + 2, cell - 4, cell - 4);
     }
 
-    function drawEntity(entity, cell, offsetX, offsetY) {
+    function drawEntity(entity, world, cell, offsetX, offsetY) {
       const position = animatedEntityPosition(entity);
       const cx = offsetX + (position.x + 0.5) * cell;
       const cy = offsetY + (position.y + 0.5) * cell;
@@ -1737,12 +1870,44 @@ export const WORLD_HTML = String.raw`<!doctype html>
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(entity.marker, cx, cy + 0.5);
+      drawEntityStatusBar(entity, world, cx, cy, radius, cell);
       if (labelsEl.checked && cell >= 14 && entity.label) {
         ctx.fillStyle = colors.text;
         ctx.font = "11px SFMono-Regular, Consolas, monospace";
         ctx.textBaseline = "bottom";
-        ctx.fillText(entity.label, cx, cy - radius - 3);
+        ctx.fillText(entity.label, cx, cy - radius - 10);
       }
+    }
+
+    function drawEntityStatusBar(entity, world, cx, cy, radius, cell) {
+      const stats = world.stats || {};
+      let meterValue = null;
+      let fill = colors.heal;
+      if (entity.kind === "player" && stats.hp) {
+        meterValue = stats.hp;
+        fill = stats.hp.ratio < 0.35 ? colors.fire : stats.hp.ratio < 0.7 ? colors.projection : colors.heal;
+      } else if (entity.kind === "boss" && stats.targetHp) {
+        meterValue = stats.targetHp;
+        fill = colors.boss;
+      } else if (entity.kind === "mob" && stats.targetHp && !/boss|shadow/i.test(stats.target || "")) {
+        const mobCount = (world.entities || []).filter((candidate) => candidate.kind === "mob").length;
+        if (mobCount === 1) {
+          meterValue = stats.targetHp;
+          fill = colors.fire;
+        }
+      }
+      if (!meterValue || !Number.isFinite(meterValue.ratio)) return;
+      const width = Math.max(16, Math.min(46, cell * 1.75));
+      const height = Math.max(3, Math.min(5, cell * 0.22));
+      const x = cx - width / 2;
+      const y = cy - radius - height - 4;
+      ctx.fillStyle = "rgba(5, 8, 11, 0.88)";
+      ctx.fillRect(x, y, width, height);
+      ctx.fillStyle = fill;
+      ctx.fillRect(x, y, width * clamp(meterValue.ratio, 0, 1), height);
+      ctx.strokeStyle = "rgba(238, 243, 246, 0.38)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
     }
 
     function animatedEntityPosition(entity) {
@@ -1767,8 +1932,12 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
 
     function hasActiveAnimation() {
-      if (!state.playerTween || state.selectedWorld) return false;
-      return performance.now() - state.playerTween.startedAt < state.playerTween.duration;
+      if (state.selectedWorld) return false;
+      if (state.playerTween && performance.now() - state.playerTween.startedAt < state.playerTween.duration) return true;
+      if (projectionEl.checked && state.routePlan && state.routePlan.path && state.routePlan.path.length > 1) return true;
+      const world = displayWorld();
+      const recent = world ? (world.progression || {}).recentAction || (world.bot || {}).lastAction || {} : {};
+      return /fireball|attack|boss|elite|heal|recover|rest|inn|evade|kite|bail|retreat|stuck|buy|sell|merchant|quest|reward/i.test(String(recent.label || ""));
     }
 
     function ensureAnimationLoop() {
@@ -1859,6 +2028,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
           renderHud(world);
         }
         draw();
+        ensureAnimationLoop();
       } catch (error) {
         state.refreshPending = false;
         liveDotEl.classList.remove("live");
@@ -1974,8 +2144,11 @@ export const WORLD_HTML = String.raw`<!doctype html>
       if (world) renderRoute(world);
       draw();
     });
-    for (const element of [followEl, labelsEl, agentsEl, threatsEl, zoomEl]) {
-      element.addEventListener("input", draw);
+    for (const element of [followEl, labelsEl, agentsEl, projectionEl, threatsEl, zoomEl]) {
+      element.addEventListener("input", () => {
+        draw();
+        ensureAnimationLoop();
+      });
     }
     new ResizeObserver(resizeCanvas).observe(wrap);
     connectEvents();
