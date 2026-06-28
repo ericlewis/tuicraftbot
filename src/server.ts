@@ -648,6 +648,7 @@ type BotAction = {
 
 type PathfindOptions = {
   blockedChars?: string[];
+  avoidChars?: string[];
   avoidAdjacentKinds?: string[];
   avoidRadius?: number;
 };
@@ -1605,10 +1606,10 @@ class BotRunner {
       );
       const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
       const bossBreathCueCount = this.bossBreathCueCount(state);
-      const bossBreathCharging = bossBreathCueCount > run.lastBossBreathCueCount;
+      const bossBreathCharging = bossBreathCueCount > run.lastBossBreathCueCount || this.hasActiveBossBreathWarning(state);
       if (questBossRun && bossBreathCharging && nearestBoss !== undefined) {
-        run.lastBossBreathCueCount = bossBreathCueCount;
-        const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+        run.lastBossBreathCueCount = Math.max(run.lastBossBreathCueCount, bossBreathCueCount);
+        const awayStep = this.bossBreathEscapeStep(state);
         if (awayStep) {
           return { label: "evade boss fire breath", key: awayStep };
         }
@@ -2659,6 +2660,10 @@ class BotRunner {
     return [...state.text.matchAll(/begins inhaling|fiery blast is charging/gi)].length;
   }
 
+  private hasActiveBossBreathWarning(state: ParsedGameState): boolean {
+    return /Boss preparing Fire Breath|Move out of danger tiles/i.test(state.text);
+  }
+
   private hasAdjacent(state: ParsedGameState, kinds: string[]): boolean {
     if (!state.player) {
       return false;
@@ -2861,6 +2866,13 @@ class BotRunner {
     );
   }
 
+  private bossBreathEscapeStep(state: ParsedGameState): string | undefined {
+    return (
+      this.firstWalkableStep(state, { blockedChars: ["D"], avoidChars: ["·"], avoidAdjacentKinds: ["B"], avoidRadius: 2 }) ??
+      this.bossKiteStep(state)
+    );
+  }
+
   private firstWalkableStep(state: ParsedGameState, options: PathfindOptions = {}): string | undefined {
     if (!state.player) {
       return undefined;
@@ -2875,6 +2887,9 @@ class BotRunner {
       const next = { x: state.player.x + dx, y: state.player.y + dy };
       const char = state.grid[next.y]?.[next.x];
       if (char && options.blockedChars?.includes(char)) {
+        continue;
+      }
+      if (char && options.avoidChars?.includes(char)) {
         continue;
       }
       if (!this.isWalkable(char, false)) {
