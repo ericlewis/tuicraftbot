@@ -1825,6 +1825,10 @@ class BotRunner {
       action.label === "cast fireball" ||
       action.label === "finish low-hp target" ||
       action.label === "bail from over-depth dungeon" ||
+      action.label === "bail to saved depth for gear farm" ||
+      action.label === "bail from blocked saved-depth boss" ||
+      action.label === "bail to buy upgrade" ||
+      action.label === "bail from unsafe dungeon route" ||
       action.label === "bail from multi-mob low-level fight" ||
       action.label === "bail from nearby boss before farming" ||
       action.label === "bail from early boss contact" ||
