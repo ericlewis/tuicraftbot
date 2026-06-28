@@ -691,6 +691,7 @@ type BotRunState = {
   starterArmorChecked: boolean;
   bossLureMoves: number;
   bossChipMoves: number;
+  lastQuestBossEngagedAt: number;
   savedDepthBlockedUntil: number;
   mageNeedsManaRest: boolean;
   mageManaRestUntil: number;
@@ -836,6 +837,7 @@ class BotRunner {
       starterArmorChecked: false,
       bossLureMoves: 0,
       bossChipMoves: 0,
+      lastQuestBossEngagedAt: 0,
       savedDepthBlockedUntil: 0,
       mageNeedsManaRest: false,
       mageManaRestUntil: 0,
@@ -1384,6 +1386,9 @@ class BotRunner {
       const nearestBoss = this.nearestDistance(state, ["B"]);
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
       const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
+      if (questBossRun && state.targetIsBoss) {
+        run.lastQuestBossEngagedAt = Date.now();
+      }
       const preEliteFarming = state.level < run.tuning.eliteQuestMinLevel && !questBossRun;
       const shouldFarmSavedDepth = Boolean(
         questBossRun &&
@@ -1493,6 +1498,7 @@ class BotRunner {
       if (canFightQuestBoss || canContinueQuestBoss) {
         const engagedQuestBossNow = Boolean(
           (state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level) ||
+            Date.now() - run.lastQuestBossEngagedAt <= 10_000 ||
             (canFightQuestBoss &&
               nearestBoss !== undefined &&
               nearestBoss <= Math.max(2, run.tuning.earlyBossContactDistance + 1))
