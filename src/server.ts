@@ -1943,9 +1943,15 @@ class BotRunner {
         }
         if (this.hasAdjacent(state, ["B"])) {
           if (isMageRun) {
+            if (selectedSafeRegularTarget && canCastFireball && spellReady && hpRatio > 0.45) {
+              return { label: "clear blocker near boss", text: "f" };
+            }
             const kiteStep = this.bossKiteStep(state);
             if (kiteStep) {
               return { label: "kite adjacent untargeted boss", key: kiteStep };
+            }
+            if (hpRatio > 0.45) {
+              return { label: "attack adjacent boss", key: "space" };
             }
             return { label: "bail from adjacent untargeted boss", command: "/stuck" };
           }
