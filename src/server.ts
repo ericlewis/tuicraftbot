@@ -1422,6 +1422,7 @@ class BotRunner {
     }
     if (
       !run.questAccepted &&
+      state.inDungeon &&
       !state.questInProgress &&
       !state.questComplete &&
       !state.noActiveQuest &&
