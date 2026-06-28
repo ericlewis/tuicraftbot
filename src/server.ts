@@ -2202,7 +2202,7 @@ class BotRunner {
         if (kind === "@") {
           player = { x, y };
         }
-        if ("DQSICMB".includes(kind)) {
+        if ("DQSICMBP".includes(kind)) {
           entities.push({ x, y, kind });
         }
       }
@@ -2719,7 +2719,7 @@ class BotRunner {
   }
 
   private isWalkable(char: string | undefined, isTarget: boolean): boolean {
-    if (!char || char === "█" || char === " " || char === "P") {
+    if (!char || char === "█" || char === " ") {
       return false;
     }
     if (["M", "B"].includes(char)) {
