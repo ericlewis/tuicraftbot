@@ -93,6 +93,7 @@ type BotTuningConfig = {
   mageMeleeFinishHp: number;
   mageManaRestMs: number;
   maxAdjacentRegularMobs: number;
+  nearLevelFallbackXpRemaining: number;
   targetHpResetBailCount: number;
   regularFightTimeoutMs: number;
 };
@@ -216,6 +217,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   mageMeleeFinishHp: 0,
   mageManaRestMs: 15_000,
   maxAdjacentRegularMobs: 1,
+  nearLevelFallbackXpRemaining: 0,
   targetHpResetBailCount: 1,
   regularFightTimeoutMs: 45_000
 };
@@ -1403,9 +1405,11 @@ class BotRunner {
       }
       const preEliteFarming = state.level < run.tuning.eliteQuestMinLevel && !questBossRun;
       const savedDepthFarmLevel = this.savedDepthFarmLevel(state);
+      const shouldTopOffNearLevel = this.shouldTopOffNearLevel(run, state);
       const shouldFarmSavedDepth = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
+          !shouldTopOffNearLevel &&
           Date.now() >= run.savedDepthBlockedUntil &&
           savedDepthFarmLevel !== undefined &&
           state.mapLevel &&
@@ -2130,7 +2134,7 @@ class BotRunner {
         state.maxDepth &&
         state.maxDepth > 1
       ) {
-        if (Date.now() < run.savedDepthBlockedUntil) {
+        if (this.shouldTopOffNearLevel(run, state) || Date.now() < run.savedDepthBlockedUntil) {
           return { label: "enter fallback quest dungeon portal", command: "/enter 1" };
         }
         return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
@@ -2148,6 +2152,17 @@ class BotRunner {
       return undefined;
     }
     return Math.min(state.maxDepth, Math.max(2, state.level - 2));
+  }
+
+  private shouldTopOffNearLevel(run: BotRunState, state: ParsedGameState): boolean {
+    if (run.tuning.nearLevelFallbackXpRemaining <= 0 || state.level >= run.tuning.questBossMinLevel) {
+      return false;
+    }
+    if (!state.xp) {
+      return false;
+    }
+    const remainingXp = state.xp.max - state.xp.current;
+    return remainingXp > 0 && remainingXp <= run.tuning.nearLevelFallbackXpRemaining;
   }
 
   private canFightQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
@@ -3280,6 +3295,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "mageMeleeFinishHp");
   setTuningNumber(tuning, source, "mageManaRestMs");
   setTuningNumber(tuning, source, "maxAdjacentRegularMobs");
+  setTuningNumber(tuning, source, "nearLevelFallbackXpRemaining");
   setTuningNumber(tuning, source, "targetHpResetBailCount");
   setTuningNumber(tuning, source, "regularFightTimeoutMs");
   return Object.keys(tuning).length > 0 ? tuning : undefined;
@@ -3396,6 +3412,13 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       "TUICRAFT_MAX_ADJACENT_REGULAR_MOBS",
       1,
       8
+    ),
+    nearLevelFallbackXpRemaining: tuneInteger(
+      overrides,
+      "nearLevelFallbackXpRemaining",
+      "TUICRAFT_NEAR_LEVEL_FALLBACK_XP_REMAINING",
+      0,
+      10_000
     ),
     targetHpResetBailCount: tuneInteger(
       overrides,
