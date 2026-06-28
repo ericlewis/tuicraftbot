@@ -3026,7 +3026,8 @@ class BotRunner {
   }
 
   private async sendCommand(run: BotRunState, command: string): Promise<void> {
-    const commandText = command.trim().replace(/^\/+/, "");
+    const trimmed = command.trim();
+    const commandText = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
     this.bridge.sendInput({ key: "escape", source: `bot:${run.mode}` });
     await sleep(40);
     this.bridge.sendInput({ text: "/", source: `bot:${run.mode}` });
