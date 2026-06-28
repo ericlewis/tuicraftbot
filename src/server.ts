@@ -2101,6 +2101,14 @@ class BotRunner {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
       }
 
+      if (questBossRun && !canFightQuestBoss && nearestBoss !== undefined && nearestBoss <= 6) {
+        const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+        if (awayStep && hpRatio > 0.9) {
+          return { label: "evade boss-blocked topoff route", key: awayStep };
+        }
+        return { label: "bail from boss-blocked topoff route", command: "/stuck" };
+      }
+
       const safeProbeStep = this.safeDungeonProbeStep(state);
       if (safeProbeStep) {
         return { label: "probe dungeon safely", key: safeProbeStep };
