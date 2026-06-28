@@ -1296,6 +1296,9 @@ class BotRunner {
         run.mageManaRestUntil = 0;
       }
       if (state.hp && hpRatio < run.tuning.townHealHpRatio) {
+        if (this.isInnOpen(state)) {
+          return { label: "rest in town", key: "space" };
+        }
         const healStep = this.stepToward(state, ["I", "P"], "onto");
         if (healStep) {
           return { label: "go to inn to heal", key: healStep };
@@ -2500,6 +2503,10 @@ class BotRunner {
 
   private isMerchantShopOpen(state: ParsedGameState): boolean {
     return /---\s*Merchant Shop\s*---|Type\s+\/buy\s+\[1-3\]|Sellable Items:/i.test(state.text);
+  }
+
+  private isInnOpen(state: ParsedGameState): boolean {
+    return /---\s*Inn\s*---|Welcome to the Hearthstone Inn|Passive regeneration is greatly/i.test(state.text);
   }
 
   private hasAdjacent(state: ParsedGameState, kinds: string[]): boolean {
