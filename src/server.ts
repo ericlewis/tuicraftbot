@@ -1929,6 +1929,9 @@ class BotRunner {
           if (kiteStep) {
             return { label: "kite boss during spell cooldown", key: kiteStep };
           }
+          if (hpRatio < 0.7) {
+            return { label: "bail during boss spell cooldown", command: "/stuck" };
+          }
           return { label: "wait for boss spell cooldown", wait: true };
         }
         if (state.targetIsBoss && this.hasAdjacent(state, ["B"])) {
