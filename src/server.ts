@@ -1221,6 +1221,12 @@ class BotRunner {
       if (gearAction) {
         return gearAction;
       }
+      if (/\[Power:\s*\d+\][^\n│]*\(Equipped\)/i.test(text)) {
+        run.starterWeaponChecked = true;
+      }
+      if (/\[Armor:\s*\d+\][^\n│]*\(Equipped\)/i.test(text)) {
+        run.starterArmorChecked = true;
+      }
       if (/--- ACTION ---/i.test(text) && /Item:\s*Rusty Sword/i.test(text)) {
         if (!/\bWpn:\s*None\b/i.test(text)) {
           run.starterWeaponChecked = true;
@@ -1243,13 +1249,17 @@ class BotRunner {
         run.starterArmorChecked = true;
         return { label: "close starter armor action", key: "escape" };
       }
-      if (/Rusty Sword/i.test(text) && !/Rusty Sword[^\n]*\(Equipped\)/i.test(text)) {
+      if (!run.starterWeaponChecked && /Rusty Sword/i.test(text) && !/Rusty Sword[^\n]*\(Equipped\)/i.test(text)) {
         if (/▶\s*Rusty Sword/i.test(text)) {
           return { label: "equip starter weapon", text: "e" };
         }
         return { label: "select starter weapon", text: "w" };
       }
-      if (/Tattered Cloth Robes/i.test(text) && !/Tattered Cloth Robes[^\n]*\(Equipped\)/i.test(text)) {
+      if (
+        !run.starterArmorChecked &&
+        /Tattered Cloth Robes/i.test(text) &&
+        !/Tattered Cloth Robes[^\n]*\(Equipped\)/i.test(text)
+      ) {
         if (/▶\s*Tattered Cloth Robes/i.test(text)) {
           return { label: "equip starter armor", text: "e" };
         }
