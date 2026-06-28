@@ -152,7 +152,8 @@ with env vars:
   `TUICRAFT_TARGET_HP_RESET_BAIL_COUNT`,
   `TUICRAFT_REGULAR_FIGHT_TIMEOUT_MS`,
   `TUICRAFT_DUNGEON_PROGRESS_STALL_MS`,
-  `TUICRAFT_SAVED_DEPTH_ROUTE_RESET_MS`
+  `TUICRAFT_SAVED_DEPTH_ROUTE_RESET_MS`,
+  `TUICRAFT_SAVED_DEPTH_FARM_MAX_LEVEL`
 
 The bot watches the visible terminal for obvious failure text such as
 `Error:`, `Unhandled`, `Exception`, `undefined`, and `NaN`. If the remote game

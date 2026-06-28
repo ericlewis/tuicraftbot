@@ -105,6 +105,7 @@ type BotTuningConfig = {
   regularFightTimeoutMs: number;
   dungeonProgressStallMs: number;
   savedDepthRouteResetMs: number;
+  savedDepthFarmMaxLevel: number;
 };
 
 type BotRunSummary = {
@@ -326,7 +327,8 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   targetHpResetBailCount: 1,
   regularFightTimeoutMs: 45_000,
   dungeonProgressStallMs: 30_000,
-  savedDepthRouteResetMs: 60_000
+  savedDepthRouteResetMs: 60_000,
+  savedDepthFarmMaxLevel: 4
 };
 
 class GameBridge {
@@ -1726,7 +1728,7 @@ class BotRunner {
         if (doorAdjacentStep) {
           return { label: "go to saved-depth farm portal", key: doorAdjacentStep };
         }
-        return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
+        return this.savedDepthFarmPortalAction(run, state);
       }
 
       if (
@@ -1778,7 +1780,7 @@ class BotRunner {
         }
       }
       const preEliteFarming = state.level < run.tuning.eliteQuestMinLevel && !questBossRun;
-      const savedDepthFarmLevel = this.savedDepthFarmLevel(state);
+      const savedDepthFarmLevel = this.savedDepthFarmLevel(run, state);
       const shouldTopOffNearLevel = this.shouldTopOffNearLevel(run, state);
       const savedDepthFarmingDungeon = Boolean(
         questBossRun &&
@@ -2002,7 +2004,7 @@ class BotRunner {
           if (kiteStep) {
             return { label: "kite boss during spell cooldown", key: kiteStep };
           }
-          if (hpRatio < 0.7) {
+          if (hpRatio < run.tuning.questBossEngagedRetreatHpRatio) {
             return { label: "bail during boss spell cooldown", command: "/stuck" };
           }
           return { label: "wait for boss spell cooldown", wait: true };
@@ -2665,7 +2667,7 @@ class BotRunner {
         if (Date.now() < run.savedDepthBlockedUntil) {
           return { label: "wait for saved-depth route reset", wait: true };
         }
-        return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
+        return this.savedDepthFarmPortalAction(run, state);
       }
       if (state.maxDepth && state.maxDepth > 1) {
         return { label: "enter saved quest depth", command: "/enter 2" };
@@ -2681,11 +2683,25 @@ class BotRunner {
     return { label: "enter saved dungeon portal", command: "/enter 1" };
   }
 
-  private savedDepthFarmLevel(state: ParsedGameState): number | undefined {
+  private savedDepthFarmPortalAction(run: BotRunState, state: ParsedGameState): BotAction {
+    const farmMapLevel = this.savedDepthFarmLevel(run, state) ?? 4;
+    const depth = this.portalDepthForMapLevel(farmMapLevel, state.maxDepth);
+    return {
+      label: `enter saved dungeon depth ${depth} to farm L${farmMapLevel}`,
+      command: `/enter ${depth}`
+    };
+  }
+
+  private portalDepthForMapLevel(mapLevel: number, maxDepth: number | undefined): number {
+    const depth = mapLevel <= 1 ? 1 : Math.floor(mapLevel / 4) + 1;
+    return clampInteger(depth, 1, Math.max(1, maxDepth ?? depth));
+  }
+
+  private savedDepthFarmLevel(run: BotRunState, state: ParsedGameState): number | undefined {
     if (!state.maxDepth || state.maxDepth <= 1) {
       return undefined;
     }
-    return Math.min(state.maxDepth, 4, Math.max(2, state.level - 2));
+    return Math.min(state.maxDepth, run.tuning.savedDepthFarmMaxLevel, Math.max(2, state.level - 2));
   }
 
   private shouldTopOffNearLevel(run: BotRunState, state: ParsedGameState): boolean {
@@ -2708,9 +2724,13 @@ class BotRunner {
   }
 
   private canContinueQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
+    const bossStillActive =
+      Boolean(state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level) ||
+      (Date.now() - run.lastQuestBossEngagedAt <= 10_000 &&
+        Boolean(run.lastQuestBossTargetHp && run.lastQuestBossTargetHp.current < run.lastQuestBossTargetHp.max));
     return (
       this.hasQuestBossReadiness(run, state) &&
-      Boolean(state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level) &&
+      bossStillActive &&
       hpRatio > run.tuning.questBossEngagedRetreatHpRatio
     );
   }
@@ -4710,6 +4730,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "regularFightTimeoutMs");
   setTuningNumber(tuning, source, "dungeonProgressStallMs");
   setTuningNumber(tuning, source, "savedDepthRouteResetMs");
+  setTuningNumber(tuning, source, "savedDepthFarmMaxLevel");
   return Object.keys(tuning).length > 0 ? tuning : undefined;
 }
 
@@ -4889,6 +4910,13 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       "TUICRAFT_SAVED_DEPTH_ROUTE_RESET_MS",
       5_000,
       300_000
+    ),
+    savedDepthFarmMaxLevel: tuneInteger(
+      overrides,
+      "savedDepthFarmMaxLevel",
+      "TUICRAFT_SAVED_DEPTH_FARM_MAX_LEVEL",
+      2,
+      100
     )
   };
 }

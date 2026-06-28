@@ -242,7 +242,8 @@ server.registerTool(
           targetHpResetBailCount: z.number().int().min(1).max(10).optional(),
           regularFightTimeoutMs: z.number().int().min(5000).max(300000).optional(),
           dungeonProgressStallMs: z.number().int().min(5000).max(300000).optional(),
-          savedDepthRouteResetMs: z.number().int().min(5000).max(300000).optional()
+          savedDepthRouteResetMs: z.number().int().min(5000).max(300000).optional(),
+          savedDepthFarmMaxLevel: z.number().int().min(2).max(100).optional()
         })
         .optional(),
       accountUsername: z.string().min(1).optional(),
