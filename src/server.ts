@@ -3218,7 +3218,7 @@ async function handleRequest(request: Request): Promise<Response> {
     if (request.method === "GET" && url.pathname === "/") {
       return html(INDEX_HTML);
     }
-    if (request.method === "GET" && url.pathname === "/world") {
+    if (request.method === "GET" && (url.pathname === "/world" || url.pathname === "/progression")) {
       return html(WORLD_HTML);
     }
     if (request.method === "GET" && url.pathname === "/api/session") {

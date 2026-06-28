@@ -126,6 +126,37 @@ export const WORLD_HTML = String.raw`<!doctype html>
       font: 12px/1.35 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
       pointer-events: none;
     }
+    .state-strip {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      pointer-events: none;
+    }
+    .capsule {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      padding: 5px 8px;
+      border: 1px solid rgba(66, 198, 255, 0.22);
+      border-radius: 6px;
+      background: rgba(8, 12, 16, 0.78);
+      color: var(--text);
+      font: 12px/1.25 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+    }
+    .capsule strong {
+      color: var(--cyan);
+      font-weight: 700;
+    }
+    .capsule.danger strong { color: var(--red); }
+    .capsule.ready strong { color: var(--green); }
+    .capsule.warn strong { color: var(--amber); }
     aside {
       display: grid;
       align-content: start;
@@ -257,12 +288,141 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
     .controls button { padding: 0; }
     .controls .wide { grid-column: span 3; width: 100%; }
+    .readiness {
+      display: grid;
+      gap: 7px;
+    }
+    .stage-step {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .stage-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #202b35;
+    }
+    .stage-step.ready .stage-dot {
+      border-color: rgba(73, 209, 125, 0.75);
+      background: var(--green);
+      box-shadow: 0 0 10px rgba(73, 209, 125, 0.35);
+    }
+    .stage-step.warn .stage-dot {
+      border-color: rgba(231, 180, 94, 0.8);
+      background: var(--amber);
+      box-shadow: 0 0 10px rgba(231, 180, 94, 0.3);
+    }
+    .stage-step.danger .stage-dot {
+      border-color: rgba(236, 109, 95, 0.8);
+      background: var(--red);
+      box-shadow: 0 0 10px rgba(236, 109, 95, 0.3);
+    }
+    .stage-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #dbe5ee;
+    }
+    .stage-value {
+      color: var(--muted);
+      font: 12px/1.25 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      white-space: nowrap;
+    }
+    .delta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .delta {
+      display: grid;
+      gap: 2px;
+      padding: 7px;
+      border: 1px solid rgba(45, 57, 69, 0.72);
+      border-radius: 6px;
+      background: rgba(21, 29, 37, 0.54);
+      min-width: 0;
+    }
+    .delta span {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .delta strong {
+      color: var(--text);
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .timeline-tools {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .timeline-tools button {
+      min-height: 30px;
+      font-size: 12px;
+    }
+    .timeline {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .timeline button {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      width: 100%;
+      min-height: 0;
+      padding: 7px;
+      text-align: left;
+      border-color: rgba(45, 57, 69, 0.72);
+      background: rgba(12, 17, 22, 0.7);
+    }
+    .timeline button.selected {
+      border-color: var(--cyan);
+      background: rgba(66, 198, 255, 0.09);
+    }
+    .timeline-time {
+      color: var(--amber);
+      font: 11px/1.35 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      white-space: nowrap;
+    }
+    .timeline-title {
+      color: var(--text);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .timeline-note {
+      grid-column: 2;
+      color: var(--muted);
+      font: 11px/1.35 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      overflow-wrap: anywhere;
+    }
+    .detail {
+      min-height: 40px;
+      padding: 8px 0 0;
+      color: var(--muted);
+      font: 12px/1.4 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      overflow-wrap: anywhere;
+    }
     @media (max-width: 940px) {
       .shell { grid-template-columns: 1fr; }
       .stage { min-height: 62vh; border-right: 0; border-bottom: 1px solid var(--line); }
       aside { max-height: none; }
       header { align-items: flex-start; flex-direction: column; }
       .tools { justify-content: flex-start; }
+      .state-strip { position: static; padding: 10px; background: #080a0d; }
     }
   </style>
 </head>
@@ -284,6 +444,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
       </header>
       <div class="world-wrap" id="wrap">
         <canvas id="world"></canvas>
+        <div id="state-strip" class="state-strip"></div>
         <div id="hover" class="hover">Waiting for world state</div>
       </div>
     </div>
@@ -291,6 +452,11 @@ export const WORLD_HTML = String.raw`<!doctype html>
       <section>
         <div class="status-line"><span id="live-dot" class="dot"></span><span id="live-status">connecting</span></div>
         <div id="objective" class="objective">Reading live state</div>
+      </section>
+      <section>
+        <h2>Progression</h2>
+        <div id="readiness" class="readiness"></div>
+        <div id="deltas" class="delta-grid"></div>
       </section>
       <section>
         <h2>Character</h2>
@@ -310,6 +476,15 @@ export const WORLD_HTML = String.raw`<!doctype html>
           <span><i class="swatch boss"></i>Boss</span>
           <span><i class="swatch town"></i>Town</span>
         </div>
+      </section>
+      <section>
+        <h2>Timeline</h2>
+        <div class="timeline-tools">
+          <button id="timeline-live" type="button">Live</button>
+          <button id="clear-trail" type="button">Clear Trail</button>
+        </div>
+        <ol id="timeline" class="timeline"></ol>
+        <div id="timeline-detail" class="detail">No progression events yet</div>
       </section>
       <section>
         <h2>Manual</h2>
@@ -335,11 +510,18 @@ export const WORLD_HTML = String.raw`<!doctype html>
     const liveDotEl = document.getElementById("live-dot");
     const liveStatusEl = document.getElementById("live-status");
     const objectiveEl = document.getElementById("objective");
+    const stateStripEl = document.getElementById("state-strip");
+    const readinessEl = document.getElementById("readiness");
+    const deltasEl = document.getElementById("deltas");
     const metersEl = document.getElementById("meters");
     const characterEl = document.getElementById("character");
     const runEl = document.getElementById("run");
     const mapEl = document.getElementById("map");
     const logEl = document.getElementById("log");
+    const timelineEl = document.getElementById("timeline");
+    const timelineDetailEl = document.getElementById("timeline-detail");
+    const timelineLiveEl = document.getElementById("timeline-live");
+    const clearTrailEl = document.getElementById("clear-trail");
     const followEl = document.getElementById("follow");
     const labelsEl = document.getElementById("labels");
     const manualEl = document.getElementById("manual");
@@ -348,6 +530,10 @@ export const WORLD_HTML = String.raw`<!doctype html>
     const state = {
       world: null,
       trail: [],
+      snapshots: [],
+      selectedTimelineId: "live",
+      refreshPending: false,
+      eventConnected: false,
       hoverTile: null,
       geometry: { cell: 12, offsetX: 0, offsetY: 0 },
       lastFrame: -1
@@ -392,6 +578,231 @@ export const WORLD_HTML = String.raw`<!doctype html>
         escapeHtml(value.current + "/" + value.max) + "</span></div>";
     }
 
+    function formatMeterValue(value) {
+      if (!value || !Number.isFinite(value.current) || !Number.isFinite(value.max)) return "";
+      return value.current + "/" + value.max;
+    }
+
+    function formatRatio(value) {
+      if (!value || !Number.isFinite(value.ratio)) return "";
+      return Math.round(Math.max(0, Math.min(1, value.ratio)) * 100) + "%";
+    }
+
+    function parseUpgrade(value) {
+      const match = String(value || "").match(/\+(\d+)/);
+      return match ? Number(match[1]) : undefined;
+    }
+
+    function tuningNumber(world, key, fallback) {
+      const value = world && world.bot && world.bot.tuning ? Number(world.bot.tuning[key]) : NaN;
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function questLooksAccepted(world) {
+      const stats = world.stats || {};
+      if (/Elite Slayer|Active|Ready|In Progress/i.test(stats.quest || "")) return true;
+      return (world.logs || []).some((entry) => {
+        const text = entry.message + " " + JSON.stringify(entry.data || {});
+        return /accept elite quest|Quest '.*' accepted|Quest:\s*Elite Slayer|Elite Slayer/i.test(text);
+      });
+    }
+
+    function readinessSteps(world) {
+      const stats = world.stats || {};
+      const hp = stats.hp;
+      const levelGate = tuningNumber(world, "questBossMinLevel", 4);
+      const weaponGate = tuningNumber(world, "questBossMinWeaponUpgrade", 0);
+      const armorGate = tuningNumber(world, "questBossMinArmorUpgrade", 0);
+      const minFightHp = tuningNumber(world, "questBossMinFightHpRatio", 0.3);
+      const weaponUpgrade = parseUpgrade(stats.weapon);
+      const armorUpgrade = parseUpgrade(stats.armor);
+      const level = Number(stats.level || 0);
+      const hpRatio = hp && hp.max ? hp.current / hp.max : 0;
+      const target = stats.target || "";
+      const targetHp = stats.targetHp;
+      const questReady = questLooksAccepted(world);
+      return [
+        {
+          label: "Level gate",
+          value: level ? "L" + level + " / L" + levelGate : "unknown",
+          status: level >= levelGate ? "ready" : "danger"
+        },
+        {
+          label: "Weapon gate",
+          value: stats.weapon ? stats.weapon + " / +" + weaponGate : "unknown",
+          status: weaponUpgrade === undefined || weaponUpgrade >= weaponGate ? "ready" : "warn"
+        },
+        {
+          label: "Armor gate",
+          value: stats.armor ? stats.armor + " / +" + armorGate : "unknown",
+          status: armorUpgrade === undefined || armorUpgrade >= armorGate ? "ready" : "warn"
+        },
+        {
+          label: "Quest",
+          value: stats.quest || (questReady ? "Elite Slayer" : "unknown"),
+          status: questReady ? "ready" : "warn"
+        },
+        {
+          label: "Fight health",
+          value: hp ? formatMeterValue(hp) + " (" + formatRatio(hp) + ")" : "unknown",
+          status: hpRatio > minFightHp ? (hpRatio >= 0.9 ? "ready" : "warn") : "danger"
+        },
+        {
+          label: "Boss contact",
+          value: target ? target + (targetHp ? " " + formatMeterValue(targetHp) : "") : "none",
+          status: /Boss|Shadow Overlord/i.test(target) ? "warn" : "ready"
+        }
+      ];
+    }
+
+    function renderProgression(world) {
+      const stats = world.stats || {};
+      const bot = world.bot || {};
+      const steps = readinessSteps(world);
+      const readyCount = steps.filter((step) => step.status === "ready").length;
+      stateStripEl.innerHTML = [
+        capsule(stats.name || bot.characterName || "character", "L" + (stats.level || "?"), "ready"),
+        capsule("HP", formatMeterValue(stats.hp) || "?", stats.hp && stats.hp.ratio < 0.35 ? "danger" : "ready"),
+        capsule("XP", formatMeterValue(stats.xp) || "?", ""),
+        capsule("Gold", stats.gold !== undefined ? stats.gold + "g" : "?", ""),
+        capsule("Weapon", stats.weapon || "?", parseUpgrade(stats.weapon) >= tuningNumber(world, "questBossMinWeaponUpgrade", 0) ? "ready" : "warn"),
+        capsule("Armor", stats.armor || "?", parseUpgrade(stats.armor) >= tuningNumber(world, "questBossMinArmorUpgrade", 0) ? "ready" : "warn"),
+        capsule("Boss Gate", readyCount + "/" + steps.length, readyCount === steps.length ? "ready" : "warn")
+      ].join("");
+      readinessEl.innerHTML = steps.map((step) => {
+        return "<div class=\"stage-step " + escapeHtml(step.status) + "\"><i class=\"stage-dot\"></i><span class=\"stage-label\">" +
+          escapeHtml(step.label) + "</span><span class=\"stage-value\">" + escapeHtml(step.value) + "</span></div>";
+      }).join("");
+      deltasEl.innerHTML = [
+        delta("Class", stats.className || bot.characterClass || ""),
+        delta("Map", world.mapName || ""),
+        delta("Mana", formatMeterValue(stats.mana)),
+        delta("Target", stats.target || "none")
+      ].join("");
+      renderTimeline(world);
+    }
+
+    function capsule(label, value, status) {
+      return "<span class=\"capsule " + escapeHtml(status || "") + "\"><span>" + escapeHtml(label) +
+        "</span><strong>" + escapeHtml(value || "") + "</strong></span>";
+    }
+
+    function delta(label, value) {
+      return "<div class=\"delta\"><span>" + escapeHtml(label) + "</span><strong>" + escapeHtml(value || "-") + "</strong></div>";
+    }
+
+    function snapshotSignature(world) {
+      const stats = world.stats || {};
+      const bot = world.bot || {};
+      return [
+        world.mapName || "",
+        stats.level || "",
+        formatMeterValue(stats.hp),
+        formatMeterValue(stats.mana),
+        formatMeterValue(stats.xp),
+        stats.gold,
+        stats.weapon,
+        stats.armor,
+        stats.quest,
+        stats.target,
+        formatMeterValue(stats.targetHp),
+        bot.status,
+        bot.actionCount
+      ].join("|");
+    }
+
+    function recordSnapshot(world) {
+      const signature = snapshotSignature(world);
+      const last = state.snapshots[state.snapshots.length - 1];
+      if (last && last.signature === signature) return;
+      const stats = world.stats || {};
+      state.snapshots.push({
+        id: "snapshot-" + world.frame + "-" + Date.now(),
+        ts: world.ts || new Date().toISOString(),
+        signature,
+        title: (world.mapName || "World") + " · L" + (stats.level || "?"),
+        note: [
+          stats.hp ? "HP " + formatMeterValue(stats.hp) : "",
+          stats.xp ? "XP " + formatMeterValue(stats.xp) : "",
+          stats.gold !== undefined ? stats.gold + "g" : "",
+          stats.weapon || "",
+          stats.armor || ""
+        ].filter(Boolean).join(" · "),
+        world
+      });
+      state.snapshots = state.snapshots.slice(-40);
+    }
+
+    function buildTimelineEntries(world) {
+      const logEntries = (world.logs || [])
+        .map((entry, index) => timelineEntryFromLog(entry, index))
+        .filter(Boolean);
+      const snapshotEntries = state.snapshots.slice(-12).map((snapshot) => ({
+        id: snapshot.id,
+        ts: snapshot.ts,
+        title: snapshot.title,
+        note: snapshot.note,
+        detail: snapshot.note,
+        kind: "snapshot"
+      }));
+      const byKey = new Map();
+      for (const entry of logEntries.concat(snapshotEntries)) {
+        const key = entry.title + "|" + entry.note + "|" + Math.floor(new Date(entry.ts).getTime() / 5000);
+        byKey.set(key, entry);
+      }
+      return Array.from(byKey.values())
+        .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+        .slice(0, 18);
+    }
+
+    function timelineEntryFromLog(entry, index) {
+      const data = entry.data || {};
+      const dataText = JSON.stringify(data);
+      const text = entry.message + " " + dataText;
+      const important = /bot started|bot completed|stopped|state changed|buy|sell|quest|boss|elite|judge|death|dead|recover|level|heal|stuck|bail|fireball|win/i.test(text);
+      if (!important) return undefined;
+      let title = entry.message;
+      if (entry.message === "state changed") {
+        title = (data.map || "state") + " · L" + (data.level || "?");
+      }
+      const noteParts = [];
+      if (data.hp) noteParts.push("HP " + data.hp);
+      if (data.mana) noteParts.push("Mana " + data.mana);
+      if (data.xp) noteParts.push("XP " + data.xp);
+      if (data.gold !== undefined) noteParts.push(data.gold + "g");
+      if (data.targetHp) noteParts.push("Target " + data.targetHp);
+      if (data.target) noteParts.push(String(data.target).slice(0, 90));
+      if (data.from || data.to) noteParts.push(String(data.from || "") + " -> " + String(data.to || ""));
+      return {
+        id: "log-" + index + "-" + new Date(entry.ts).getTime(),
+        ts: entry.ts,
+        title,
+        note: noteParts.join(" · ") || dataText.slice(0, 150),
+        detail: "[" + entry.level + "] " + entry.message + (dataText && dataText !== "{}" ? " " + dataText : ""),
+        kind: "log"
+      };
+    }
+
+    function renderTimeline(world) {
+      const entries = buildTimelineEntries(world);
+      if (state.selectedTimelineId === "live" && entries[0]) {
+        timelineDetailEl.textContent = entries[0].detail || entries[0].note || entries[0].title;
+      }
+      timelineEl.innerHTML = entries.map((entry) => {
+        return "<li><button type=\"button\" data-timeline-id=\"" + escapeHtml(entry.id) + "\" class=\"" +
+          (state.selectedTimelineId === entry.id ? "selected" : "") + "\"><span class=\"timeline-time\">" +
+          escapeHtml(formatTime(entry.ts)) + "</span><span class=\"timeline-title\">" + escapeHtml(entry.title) +
+          "</span><span class=\"timeline-note\">" + escapeHtml(entry.note || "") + "</span></button></li>";
+      }).join("");
+      timelineEl.__entries = entries;
+    }
+
+    function formatTime(ts) {
+      const date = new Date(ts);
+      if (Number.isNaN(date.getTime())) return "";
+      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
     function renderHud(world) {
       const stats = world.stats || {};
       const bot = world.bot || {};
@@ -399,8 +810,9 @@ export const WORLD_HTML = String.raw`<!doctype html>
       titleEl.textContent = world.mapName || "TUICraft World";
       frameEl.textContent = world.frame !== undefined ? "frame " + world.frame : "";
       objectiveEl.textContent = world.objective || "Observing live run";
-      liveStatusEl.textContent = bot.status ? "bot " + bot.status : "session live";
+      liveStatusEl.textContent = (state.eventConnected ? "event live · " : "") + (bot.status ? "bot " + bot.status : "session live");
       liveDotEl.classList.toggle("live", bot.status === "running");
+      renderProgression(world);
       metersEl.innerHTML = [
         meter("HP", stats.hp, ""),
         meter("Mana", stats.mana, "mana"),
@@ -663,16 +1075,41 @@ export const WORLD_HTML = String.raw`<!doctype html>
 
     async function refresh() {
       try {
-        const response = await fetch("/api/world", { cache: "no-store" });
+        state.refreshPending = false;
+        const response = await fetch("/api/world?limit=240", { cache: "no-store" });
         const world = await response.json();
         state.world = world;
+        recordSnapshot(world);
         updateTrail(world);
         renderHud(world);
         draw();
       } catch (error) {
+        state.refreshPending = false;
         liveDotEl.classList.remove("live");
         liveStatusEl.textContent = "disconnected";
         hoverEl.textContent = String(error);
+      }
+    }
+
+    function scheduleRefresh() {
+      if (state.refreshPending) return;
+      state.refreshPending = true;
+      setTimeout(refresh, 80);
+    }
+
+    function connectEvents() {
+      if (!window.EventSource) return;
+      const source = new EventSource("/api/events");
+      source.addEventListener("open", () => {
+        state.eventConnected = true;
+        if (state.world) renderHud(state.world);
+      });
+      source.addEventListener("error", () => {
+        state.eventConnected = false;
+        if (state.world) renderHud(state.world);
+      });
+      for (const type of ["screen", "bot_action", "bot_log", "bot_status", "status"]) {
+        source.addEventListener(type, scheduleRefresh);
       }
     }
 
@@ -694,11 +1131,29 @@ export const WORLD_HTML = String.raw`<!doctype html>
       const button = event.target.closest("button[data-key]");
       if (button) void sendInput(button.dataset.key);
     });
+    timelineEl.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-timeline-id]");
+      if (!button) return;
+      const entries = timelineEl.__entries || [];
+      const entry = entries.find((candidate) => candidate.id === button.dataset.timelineId);
+      state.selectedTimelineId = button.dataset.timelineId || "live";
+      timelineDetailEl.textContent = entry ? entry.detail || entry.note || entry.title : "";
+      if (state.world) renderTimeline(state.world);
+    });
+    timelineLiveEl.addEventListener("click", () => {
+      state.selectedTimelineId = "live";
+      if (state.world) renderTimeline(state.world);
+    });
+    clearTrailEl.addEventListener("click", () => {
+      state.trail = [];
+      draw();
+    });
     for (const element of [followEl, labelsEl, zoomEl]) {
       element.addEventListener("input", draw);
     }
     new ResizeObserver(resizeCanvas).observe(wrap);
-    setInterval(refresh, 1000);
+    connectEvents();
+    setInterval(refresh, 1500);
     refresh();
   </script>
 </body>
