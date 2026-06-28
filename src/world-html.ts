@@ -304,6 +304,18 @@ export const WORLD_HTML = String.raw`<!doctype html>
       color: var(--muted);
       font-size: 12px;
     }
+    button.stage-step {
+      width: 100%;
+      min-height: 0;
+      padding: 3px 4px;
+      border-color: transparent;
+      background: transparent;
+      text-align: left;
+    }
+    button.stage-step:hover {
+      border-color: rgba(66, 198, 255, 0.42);
+      background: rgba(66, 198, 255, 0.06);
+    }
     .stage-dot {
       width: 12px;
       height: 12px;
@@ -415,6 +427,15 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
     .timeline-tools button,
     .replay-tools button {
+      min-height: 30px;
+      font-size: 12px;
+    }
+    .route-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .route-actions button {
       min-height: 30px;
       font-size: 12px;
     }
@@ -553,6 +574,9 @@ export const WORLD_HTML = String.raw`<!doctype html>
       <section>
         <h2>Route</h2>
         <dl id="route"></dl>
+        <div class="route-actions">
+          <button id="route-step" type="button">Step Route</button>
+        </div>
       </section>
       <section>
         <h2>Timeline</h2>
@@ -605,6 +629,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
     const runEl = document.getElementById("run");
     const mapEl = document.getElementById("map");
     const routeEl = document.getElementById("route");
+    const routeStepEl = document.getElementById("route-step");
     const logEl = document.getElementById("log");
     const timelineEl = document.getElementById("timeline");
     const timelineDetailEl = document.getElementById("timeline-detail");
@@ -707,6 +732,23 @@ export const WORLD_HTML = String.raw`<!doctype html>
       return match ? Number(match[1]) : undefined;
     }
 
+    function parseItemRating(value) {
+      const match = String(value || "").match(/\((\d+)\)/);
+      return match ? Number(match[1]) : undefined;
+    }
+
+    function isWeaponValueReady(upgrade, power, requiredUpgrade) {
+      return (Number.isFinite(upgrade) && upgrade >= requiredUpgrade) ||
+        (Number.isFinite(power) && power >= 5 + requiredUpgrade) ||
+        (!Number.isFinite(upgrade) && !Number.isFinite(power));
+    }
+
+    function isArmorValueReady(upgrade, armor, requiredUpgrade) {
+      return (Number.isFinite(upgrade) && upgrade >= requiredUpgrade) ||
+        (Number.isFinite(armor) && armor >= 3 + requiredUpgrade) ||
+        (!Number.isFinite(upgrade) && !Number.isFinite(armor));
+    }
+
     function tuningNumber(world, key, fallback) {
       const value = world && world.bot && world.bot.tuning ? Number(world.bot.tuning[key]) : NaN;
       return Number.isFinite(value) ? value : fallback;
@@ -730,11 +772,15 @@ export const WORLD_HTML = String.raw`<!doctype html>
       const minFightHp = tuningNumber(world, "questBossMinFightHpRatio", 0.3);
       const weaponUpgrade = parseUpgrade(stats.weapon);
       const armorUpgrade = parseUpgrade(stats.armor);
+      const weaponPower = parseItemRating(stats.weapon);
+      const armorValue = parseItemRating(stats.armor);
       const level = Number(stats.level || 0);
       const hpRatio = hp && hp.max ? hp.current / hp.max : 0;
       const target = stats.target || "";
       const targetHp = stats.targetHp;
       const questReady = questLooksAccepted(world);
+      const weaponMissing = /^None\b/i.test(stats.weapon || "");
+      const armorMissing = /^None\b/i.test(stats.armor || "");
       return [
         {
           label: "Level gate",
@@ -744,12 +790,12 @@ export const WORLD_HTML = String.raw`<!doctype html>
         {
           label: "Weapon gate",
           value: stats.weapon ? stats.weapon + " / +" + weaponGate : "unknown",
-          status: weaponUpgrade === undefined || weaponUpgrade >= weaponGate ? "ready" : "warn"
+          status: !weaponMissing && isWeaponValueReady(weaponUpgrade, weaponPower, weaponGate) ? "ready" : "warn"
         },
         {
           label: "Armor gate",
           value: stats.armor ? stats.armor + " / +" + armorGate : "unknown",
-          status: armorUpgrade === undefined || armorUpgrade >= armorGate ? "ready" : "warn"
+          status: !armorMissing && isArmorValueReady(armorUpgrade, armorValue, armorGate) ? "ready" : "warn"
         },
         {
           label: "Quest",
@@ -784,13 +830,14 @@ export const WORLD_HTML = String.raw`<!doctype html>
         capsule("HP", formatMeterValue(stats.hp) || "?", stats.hp && stats.hp.ratio < 0.35 ? "danger" : "ready"),
         capsule("XP", formatMeterValue(stats.xp) || "?", ""),
         capsule("Gold", stats.gold !== undefined ? stats.gold + "g" : "?", ""),
-        capsule("Weapon", stats.weapon || "?", parseUpgrade(stats.weapon) >= tuningNumber(world, "questBossMinWeaponUpgrade", 0) ? "ready" : "warn"),
-        capsule("Armor", stats.armor || "?", parseUpgrade(stats.armor) >= tuningNumber(world, "questBossMinArmorUpgrade", 0) ? "ready" : "warn"),
+        capsule("Weapon", stats.weapon || "?", gearGateStatus(stats.weapon, "weapon", world)),
+        capsule("Armor", stats.armor || "?", gearGateStatus(stats.armor, "armor", world)),
         capsule("Boss Gate", readyCount + "/" + steps.length, progression.bossReady || readyCount === steps.length ? "ready" : "warn")
       ].join("");
       readinessEl.innerHTML = steps.map((step) => {
-        return "<div class=\"stage-step " + escapeHtml(step.status) + "\"><i class=\"stage-dot\"></i><span class=\"stage-label\">" +
-          escapeHtml(step.label) + "</span><span class=\"stage-value\">" + escapeHtml(step.value) + "</span></div>";
+        return "<button type=\"button\" class=\"stage-step " + escapeHtml(step.status) + "\" data-gate-focus=\"" +
+          escapeHtml(gateFocus(step)) + "\"><i class=\"stage-dot\"></i><span class=\"stage-label\">" +
+          escapeHtml(step.label) + "</span><span class=\"stage-value\">" + escapeHtml(step.value) + "</span></button>";
       }).join("");
       deltasEl.innerHTML = [
         delta("Phase", phase),
@@ -803,6 +850,27 @@ export const WORLD_HTML = String.raw`<!doctype html>
       ].join("");
       renderTrends(world);
       renderTimeline(world);
+    }
+
+    function gearGateStatus(value, kind, world) {
+      const upgrade = parseUpgrade(value);
+      const rating = parseItemRating(value);
+      const missing = /^None\b/i.test(value || "");
+      if (missing) return "warn";
+      if (kind === "weapon") {
+        return isWeaponValueReady(upgrade, rating, tuningNumber(world, "questBossMinWeaponUpgrade", 0)) ? "ready" : "warn";
+      }
+      return isArmorValueReady(upgrade, rating, tuningNumber(world, "questBossMinArmorUpgrade", 0)) ? "ready" : "warn";
+    }
+
+    function gateFocus(step) {
+      const label = String((step && step.label) || "").toLowerCase();
+      if (label.includes("level")) return "mob";
+      if (label.includes("weapon") || label.includes("armor") || label.includes("haste")) return "merchant";
+      if (label.includes("quest")) return "quest";
+      if (label.includes("hp") || label.includes("health")) return "inn";
+      if (label.includes("boss")) return "boss";
+      return "auto";
     }
 
     function phaseLabel(world) {
@@ -1358,6 +1426,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
           ["next", ""],
           ["status", "none"]
         ]);
+        routeStepEl.disabled = true;
         return;
       }
       routeEl.innerHTML = pairRows([
@@ -1368,6 +1437,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
         ["mode", plan.target.mode],
         ["status", plan.status]
       ]);
+      routeStepEl.disabled = !(plan.status === "routable" && plan.next);
     }
 
     function updateTrail(world) {
@@ -1861,10 +1931,29 @@ export const WORLD_HTML = String.raw`<!doctype html>
       syncReplayControls();
       draw();
     });
+    readinessEl.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-gate-focus]");
+      if (!button) return;
+      const focus = button.dataset.gateFocus || "auto";
+      focusEl.value = focus;
+      state.selectedTile = null;
+      const world = displayWorld();
+      if (world) renderRoute(world);
+      hoverEl.textContent = "focused " + focus;
+      draw();
+    });
     timelineLiveEl.addEventListener("click", returnToLive);
     clearTrailEl.addEventListener("click", () => {
       state.trail = [];
       draw();
+    });
+    routeStepEl.addEventListener("click", () => {
+      const plan = state.routePlan || computeRoutePlan(displayWorld());
+      if (!plan || plan.status !== "routable" || !plan.next) {
+        hoverEl.textContent = "No route step available";
+        return;
+      }
+      void sendInput(plan.next.toLowerCase());
     });
     snapshotRangeEl.addEventListener("input", () => {
       stopPlayback();

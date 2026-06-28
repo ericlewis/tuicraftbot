@@ -145,7 +145,9 @@ type BotRunSummary = {
     xp?: { current: number; max: number };
     gold?: number;
     weaponUpgrade?: number;
+    weaponPower?: number;
     armorUpgrade?: number;
+    armorValue?: number;
     hasteLevel?: number;
   };
   tuning?: BotTuningConfig;
@@ -732,6 +734,8 @@ type ParsedGameState = {
   weaponUpgrade?: number;
   armorUpgrade?: number;
   hasteLevel?: number;
+  weaponPower?: number;
+  armorValue?: number;
   weaponMissing: boolean;
   armorMissing: boolean;
   sellableItemId?: number;
@@ -810,7 +814,9 @@ type BotRunState = {
   lastKnownXp?: { current: number; max: number };
   lastKnownGold?: number;
   lastKnownWeaponUpgrade?: number;
+  lastKnownWeaponPower?: number;
   lastKnownArmorUpgrade?: number;
+  lastKnownArmorValue?: number;
   lastKnownHasteLevel?: number;
   lastMerchantCheckGold?: number;
   nextMerchantCheckAt: number;
@@ -896,7 +902,9 @@ class BotRunner {
         xp: this.run.lastKnownXp,
         gold: this.run.lastKnownGold,
         weaponUpgrade: this.run.lastKnownWeaponUpgrade,
+        weaponPower: this.run.lastKnownWeaponPower,
         armorUpgrade: this.run.lastKnownArmorUpgrade,
+        armorValue: this.run.lastKnownArmorValue,
         hasteLevel: this.run.lastKnownHasteLevel
       },
       tuning: this.run.tuning ?? DEFAULT_BOT_TUNING
@@ -975,7 +983,9 @@ class BotRunner {
       lastKnownXp: undefined,
       lastKnownGold: undefined,
       lastKnownWeaponUpgrade: undefined,
+      lastKnownWeaponPower: undefined,
       lastKnownArmorUpgrade: undefined,
+      lastKnownArmorValue: undefined,
       lastMerchantCheckGold: undefined,
       nextMerchantCheckAt: 0,
       regularTargetKey: undefined,
@@ -1189,6 +1199,10 @@ class BotRunner {
       return { label: "dismiss modal", key: "space" };
     }
     if (/--- INVENTORY ---|Manage Inventory|Press ESC to close inventory/i.test(text)) {
+      const gearAction = this.nextBestInventoryEquipAction(text);
+      if (gearAction) {
+        return gearAction;
+      }
       if (/--- ACTION ---/i.test(text) && /Item:\s*Rusty Sword/i.test(text)) {
         if (!/\bWpn:\s*None\b/i.test(text)) {
           run.starterWeaponChecked = true;
@@ -1282,6 +1296,97 @@ class BotRunner {
     const classLabel = characterClass[0].toUpperCase() + characterClass.slice(1);
     const menuChoice = text.match(new RegExp(`(?:^|\\n)[^\\n]*?(\\d+)[^\\n]*\\b${classLabel}\\b`, "i"))?.[1];
     return menuChoice ?? ({ warrior: "1", rogue: "2", mage: "3" } satisfies Record<CharacterClass, string>)[characterClass];
+  }
+
+  private nextBestInventoryEquipAction(text: string): BotAction | undefined {
+    if (/--- ACTION ---/i.test(text) && /\bItem:\s*[^\n│]+/i.test(text)) {
+      if (/▶\s*Equip Item/i.test(text)) {
+        return { label: "confirm best gear equip", key: "enter" };
+      }
+      return { label: "close gear action", key: "escape" };
+    }
+
+    const items = this.parseInventoryItems(text);
+    if (items.length === 0) {
+      return undefined;
+    }
+    const selectedIndex = items.findIndex((item) => item.selected);
+    const currentWeaponPower = /\bWpn:\s*None\b/i.test(text)
+      ? undefined
+      : Number(text.match(/\bWpn:[^\n│]*\((\d+)\)/)?.[1]);
+    const currentArmorValue = /\bArm:\s*None\b/i.test(text)
+      ? undefined
+      : Number(text.match(/\bArm:[^\n│]*\((\d+)\)/)?.[1]);
+    const currentWeaponPowerValue = Number.isFinite(currentWeaponPower) ? currentWeaponPower : undefined;
+    const currentArmorValueValue = Number.isFinite(currentArmorValue) ? currentArmorValue : undefined;
+    const bestWeapon = items
+      .filter((item) => item.kind === "weapon" && item.rating !== undefined)
+      .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))[0];
+    const bestArmor = items
+      .filter((item) => item.kind === "armor" && item.rating !== undefined)
+      .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))[0];
+
+    const weaponNeedsEquip =
+      bestWeapon &&
+      !bestWeapon.equipped &&
+      (currentWeaponPowerValue === undefined || (bestWeapon.rating ?? 0) > currentWeaponPowerValue);
+    if (weaponNeedsEquip) {
+      return this.inventorySelectionAction(bestWeapon, selectedIndex, "equip best weapon");
+    }
+
+    const armorNeedsEquip =
+      bestArmor &&
+      !bestArmor.equipped &&
+      (currentArmorValueValue === undefined || (bestArmor.rating ?? 0) > currentArmorValueValue);
+    if (armorNeedsEquip) {
+      return this.inventorySelectionAction(bestArmor, selectedIndex, "equip best armor");
+    }
+
+    return undefined;
+  }
+
+  private parseInventoryItems(text: string): Array<{
+    index: number;
+    selected: boolean;
+    equipped: boolean;
+    kind: "weapon" | "armor";
+    rating?: number;
+  }> {
+    const items: Array<{
+      index: number;
+      selected: boolean;
+      equipped: boolean;
+      kind: "weapon" | "armor";
+      rating?: number;
+    }> = [];
+    for (const line of text.split("\n")) {
+      const match = line.match(/[│]\s*(▶?)\s*([^│\n]*?)\s+\[(Power|Armor):\s*(\d+)\][^│\n]*/i);
+      if (!match) {
+        continue;
+      }
+      items.push({
+        index: items.length,
+        selected: Boolean(match[1]),
+        equipped: /\(Equipped\)/i.test(match[0]),
+        kind: match[3].toLowerCase() === "power" ? "weapon" : "armor",
+        rating: Number(match[4])
+      });
+    }
+    return items;
+  }
+
+  private inventorySelectionAction(
+    item: { index: number; selected: boolean },
+    selectedIndex: number,
+    label: string
+  ): BotAction | undefined {
+    if (item.selected) {
+      return { label, text: "e" };
+    }
+    if (selectedIndex < 0) {
+      return undefined;
+    }
+    return { label: `select ${label.replace(/^equip /, "")}`, text: item.index > selectedIndex ? "s" : "w" };
   }
 
   private markAccountRegistered(run: BotRunState, reason: string): void {
@@ -2118,7 +2223,7 @@ class BotRunner {
         return { label: "reset stalled topoff dungeon", command: "/stuck" };
       }
 
-      if (questBossRun && !canFightQuestBoss && nearestBoss !== undefined && nearestBoss <= 6) {
+      if (questBossRun && !questBossReady && nearestBoss !== undefined && nearestBoss <= 6) {
         const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
         if (awayStep && hpRatio > 0.9) {
           return { label: "evade boss-blocked topoff route", key: awayStep };
@@ -2528,11 +2633,8 @@ class BotRunner {
     const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade;
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
     const hasteLevel = state.hasteLevel ?? run.lastKnownHasteLevel;
-    const weaponReady =
-      !state.weaponMissing &&
-      (weaponUpgrade === undefined || weaponUpgrade >= run.tuning.questBossMinWeaponUpgrade);
-    const armorReady =
-      !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= run.tuning.questBossMinArmorUpgrade);
+    const weaponReady = !state.weaponMissing && this.isWeaponReady(run, weaponUpgrade, state.weaponPower);
+    const armorReady = !state.armorMissing && this.isArmorReady(run, armorUpgrade, state.armorValue);
     const hasteReady =
       run.tuning.questBossMinHasteLevel <= 0 ||
       (hasteLevel !== undefined && hasteLevel >= run.tuning.questBossMinHasteLevel);
@@ -2542,6 +2644,28 @@ class BotRunner {
       armorReady &&
       hasteReady
     );
+  }
+
+  private isWeaponReady(run: BotRunState, weaponUpgrade: number | undefined, weaponPower: number | undefined): boolean {
+    if (weaponUpgrade !== undefined && weaponUpgrade >= run.tuning.questBossMinWeaponUpgrade) {
+      return true;
+    }
+    const requiredPower = 5 + run.tuning.questBossMinWeaponUpgrade;
+    if (weaponPower !== undefined && weaponPower >= requiredPower) {
+      return true;
+    }
+    return weaponUpgrade === undefined && weaponPower === undefined;
+  }
+
+  private isArmorReady(run: BotRunState, armorUpgrade: number | undefined, armorValue: number | undefined): boolean {
+    if (armorUpgrade !== undefined && armorUpgrade >= run.tuning.questBossMinArmorUpgrade) {
+      return true;
+    }
+    const requiredArmor = 3 + run.tuning.questBossMinArmorUpgrade;
+    if (armorValue !== undefined && armorValue >= requiredArmor) {
+      return true;
+    }
+    return armorUpgrade === undefined && armorValue === undefined;
   }
 
   private hasAcceptedEliteQuest(run: BotRunState, state: ParsedGameState): boolean {
@@ -2610,6 +2734,8 @@ class BotRunner {
     );
     const weaponUpgradeMatch = screen.text.match(/Wpn:[^\n│]*\+(\d+)/) ?? screen.text.match(/Weapon:\s*\+(\d+)/);
     const armorUpgradeMatch = screen.text.match(/Arm:[^\n│]*\+(\d+)/) ?? screen.text.match(/Armor\s*:\s*\+(\d+)/);
+    const weaponPowerMatch = screen.text.match(/Wpn:[^\n│]*\((\d+)\)/) ?? screen.text.match(/\[Power:\s*(\d+)\]/);
+    const armorValueMatch = screen.text.match(/Arm:[^\n│]*\((\d+)\)/) ?? screen.text.match(/\[Armor:\s*(\d+)\]/);
     const hasteLevelMatch =
       screen.text.match(/Hst:\s*Lvl\s*(\d+)\/\d+/i) ??
       screen.text.match(/Haste\s*:\s*Lvl\s*(\d+)\/\d+/i);
@@ -2669,6 +2795,8 @@ class BotRunner {
       swingReady: swingMatch ? /\bREADY\b/i.test(swingMatch[1]) : undefined,
       weaponUpgrade: weaponUpgradeMatch ? Number(weaponUpgradeMatch[1]) : undefined,
       armorUpgrade: armorUpgradeMatch ? Number(armorUpgradeMatch[1]) : undefined,
+      weaponPower: weaponPowerMatch ? Number(weaponPowerMatch[1]) : undefined,
+      armorValue: armorValueMatch ? Number(armorValueMatch[1]) : undefined,
       hasteLevel: hasteLevelMatch ? Number(hasteLevelMatch[1]) : undefined,
       weaponMissing,
       armorMissing,
@@ -2764,8 +2892,14 @@ class BotRunner {
     if (state.weaponUpgrade !== undefined) {
       run.lastKnownWeaponUpgrade = state.weaponUpgrade;
     }
+    if (state.weaponPower !== undefined) {
+      run.lastKnownWeaponPower = state.weaponPower;
+    }
     if (state.armorUpgrade !== undefined) {
       run.lastKnownArmorUpgrade = state.armorUpgrade;
+    }
+    if (state.armorValue !== undefined) {
+      run.lastKnownArmorValue = state.armorValue;
     }
     if (state.hasteLevel !== undefined) {
       run.lastKnownHasteLevel = state.hasteLevel;
@@ -2781,6 +2915,18 @@ class BotRunner {
     }
     if (state.hasteLevel === undefined && run.lastKnownHasteLevel !== undefined) {
       state.hasteLevel = run.lastKnownHasteLevel;
+    }
+    if (state.weaponUpgrade === undefined && run.lastKnownWeaponUpgrade !== undefined) {
+      state.weaponUpgrade = run.lastKnownWeaponUpgrade;
+    }
+    if (state.weaponPower === undefined && run.lastKnownWeaponPower !== undefined) {
+      state.weaponPower = run.lastKnownWeaponPower;
+    }
+    if (state.armorUpgrade === undefined && run.lastKnownArmorUpgrade !== undefined) {
+      state.armorUpgrade = run.lastKnownArmorUpgrade;
+    }
+    if (state.armorValue === undefined && run.lastKnownArmorValue !== undefined) {
+      state.armorValue = run.lastKnownArmorValue;
     }
   }
 
@@ -3976,12 +4122,18 @@ function hydrateWorldStatsFromBotSummary(stats: WorldCharacterStats, botSummary:
   hydrated.xp ??= parseWorldMeterRecord(knownState.xp);
   hydrated.gold ??= numberValue(knownState.gold);
   const weaponUpgrade = numberValue(knownState.weaponUpgrade);
+  const weaponPower = numberValue(knownState.weaponPower);
   const armorUpgrade = numberValue(knownState.armorUpgrade);
+  const armorValue = numberValue(knownState.armorValue);
   const hasteLevel = numberValue(knownState.hasteLevel);
-  if (!hydrated.weapon && weaponUpgrade !== undefined) {
+  if (!hydrated.weapon && weaponPower !== undefined) {
+    hydrated.weapon = weaponUpgrade !== undefined ? `Weapon +${weaponUpgrade} (${weaponPower})` : `Weapon (${weaponPower})`;
+  } else if (!hydrated.weapon && weaponUpgrade !== undefined) {
     hydrated.weapon = `Rusty Sword +${weaponUpgrade}`;
   }
-  if (!hydrated.armor && armorUpgrade !== undefined) {
+  if (!hydrated.armor && armorValue !== undefined) {
+    hydrated.armor = armorUpgrade !== undefined ? `Armor +${armorUpgrade} (${armorValue})` : `Armor (${armorValue})`;
+  } else if (!hydrated.armor && armorUpgrade !== undefined) {
     hydrated.armor = `Armor +${armorUpgrade}`;
   }
   if (!hydrated.haste && hasteLevel !== undefined) {
@@ -4032,10 +4184,16 @@ function inferWorldObjective(
   const hasteGate = numberValue(tuning.questBossMinHasteLevel) ?? 0;
   const weaponUpgrade = parseUpgrade(stats.weapon);
   const armorUpgrade = parseUpgrade(stats.armor);
+  const weaponPower = parseItemRating(stats.weapon);
+  const armorValue = parseItemRating(stats.armor);
   const hasteLevel = parseHasteLevel(stats.haste);
+  const weaponMissing = /^None\b/i.test(stats.weapon ?? "");
+  const armorMissing = /^None\b/i.test(stats.armor ?? "");
   const gearReady =
-    (weaponUpgrade === undefined || weaponUpgrade >= weaponGate) &&
-    (armorUpgrade === undefined || armorUpgrade >= armorGate) &&
+    !weaponMissing &&
+    !armorMissing &&
+    isWeaponValueReady(weaponUpgrade, weaponPower, weaponGate) &&
+    isArmorValueReady(armorUpgrade, armorValue, armorGate) &&
     (hasteGate <= 0 || (hasteLevel !== undefined && hasteLevel >= hasteGate));
   const inTown = Boolean(mapName && /Town|Abbey/i.test(mapName));
   const bossVisible = entities.some((entity) => entity.kind === "boss") || /Shadow Overlord/i.test(stats.target ?? "");
@@ -4080,7 +4238,11 @@ function buildWorldProgression(
   const level = stats.level ?? 0;
   const weaponUpgrade = parseUpgrade(stats.weapon);
   const armorUpgrade = parseUpgrade(stats.armor);
+  const weaponPower = parseItemRating(stats.weapon);
+  const armorValue = parseItemRating(stats.armor);
   const hasteLevel = parseHasteLevel(stats.haste);
+  const weaponMissing = /^None\b/i.test(stats.weapon ?? "");
+  const armorMissing = /^None\b/i.test(stats.armor ?? "");
   const hpRatio = stats.hp?.ratio ?? 0;
   const questReady = worldQuestLooksAccepted(stats, logs);
   const target = stats.target ?? "";
@@ -4095,12 +4257,12 @@ function buildWorldProgression(
     {
       label: "Weapon",
       value: stats.weapon ? `${stats.weapon} / +${weaponGate}` : "unknown",
-      status: weaponUpgrade === undefined || weaponUpgrade >= weaponGate ? "ready" : "warn"
+      status: !weaponMissing && isWeaponValueReady(weaponUpgrade, weaponPower, weaponGate) ? "ready" : "warn"
     },
     {
       label: "Armor",
       value: stats.armor ? `${stats.armor} / +${armorGate}` : "unknown",
-      status: armorUpgrade === undefined || armorUpgrade >= armorGate ? "ready" : "warn"
+      status: !armorMissing && isArmorValueReady(armorUpgrade, armorValue, armorGate) ? "ready" : "warn"
     },
     ...(hasteGate > 0 || stats.haste
       ? [
@@ -4249,6 +4411,27 @@ function recentActionFromLogs(logs: BotLog[]): WorldProgression["recentAction"] 
 function parseUpgrade(value: string | undefined): number | undefined {
   const parsed = Number(value?.match(/\+(\d+)/)?.[1]);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseItemRating(value: string | undefined): number | undefined {
+  const parsed = Number(value?.match(/\((\d+)\)/)?.[1]);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isWeaponValueReady(upgrade: number | undefined, power: number | undefined, requiredUpgrade: number): boolean {
+  return (
+    (upgrade !== undefined && upgrade >= requiredUpgrade) ||
+    (power !== undefined && power >= 5 + requiredUpgrade) ||
+    (upgrade === undefined && power === undefined)
+  );
+}
+
+function isArmorValueReady(upgrade: number | undefined, armor: number | undefined, requiredUpgrade: number): boolean {
+  return (
+    (upgrade !== undefined && upgrade >= requiredUpgrade) ||
+    (armor !== undefined && armor >= 3 + requiredUpgrade) ||
+    (upgrade === undefined && armor === undefined)
+  );
 }
 
 function parseHasteLevel(value: string | undefined): number | undefined {
@@ -4570,10 +4753,9 @@ function buildJudgePayload(
     state.targetIsEliteOrBoss ||
     Boolean(nearestBossDistance !== undefined && nearestBossDistance <= tuning.earlyBossContactDistance);
   const weaponReady =
-    !state.weaponMissing &&
-    (state.weaponUpgrade === undefined || state.weaponUpgrade >= tuning.questBossMinWeaponUpgrade);
+    !state.weaponMissing && isWeaponValueReady(state.weaponUpgrade, state.weaponPower, tuning.questBossMinWeaponUpgrade);
   const armorReady =
-    !state.armorMissing && (state.armorUpgrade === undefined || state.armorUpgrade >= tuning.questBossMinArmorUpgrade);
+    !state.armorMissing && isArmorValueReady(state.armorUpgrade, state.armorValue, tuning.questBossMinArmorUpgrade);
   const hasteReady =
     tuning.questBossMinHasteLevel <= 0 ||
     (state.hasteLevel !== undefined && state.hasteLevel >= tuning.questBossMinHasteLevel);
@@ -4649,7 +4831,9 @@ function buildJudgePayload(
       xp: state.xp,
       gold: state.gold,
       weaponUpgrade: state.weaponUpgrade,
+      weaponPower: state.weaponPower,
       armorUpgrade: state.armorUpgrade,
+      armorValue: state.armorValue,
       hasteLevel: state.hasteLevel,
       weaponMissing: state.weaponMissing,
       armorMissing: state.armorMissing,

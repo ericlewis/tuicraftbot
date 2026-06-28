@@ -221,11 +221,13 @@ server.registerTool(
           questBossMinLevel: z.number().int().min(1).max(100).optional(),
           questBossMinWeaponUpgrade: z.number().int().min(0).max(20).optional(),
           questBossMinArmorUpgrade: z.number().int().min(0).max(20).optional(),
+          questBossMinHasteLevel: z.number().int().min(0).max(20).optional(),
           earlyBossAvoidPlayerLevel: z.number().int().min(1).max(100).optional(),
           earlyBossAvoidDistance: z.number().int().min(0).max(100).optional(),
           earlyBossContactDistance: z.number().int().min(0).max(100).optional(),
           maxWeaponUpgrade: z.number().int().min(0).max(20).optional(),
           maxArmorUpgrade: z.number().int().min(0).max(20).optional(),
+          maxHasteLevel: z.number().int().min(0).max(20).optional(),
           upgradeCostBaseGold: z.number().int().min(1).max(10000).optional(),
           attackCooldownMs: z.number().int().min(200).max(10000).optional(),
           spellCooldownMs: z.number().int().min(200).max(10000).optional(),
@@ -235,7 +237,8 @@ server.registerTool(
           maxAdjacentRegularMobs: z.number().int().min(1).max(8).optional(),
           nearLevelFallbackXpRemaining: z.number().int().min(0).max(10000).optional(),
           targetHpResetBailCount: z.number().int().min(1).max(10).optional(),
-          regularFightTimeoutMs: z.number().int().min(5000).max(300000).optional()
+          regularFightTimeoutMs: z.number().int().min(5000).max(300000).optional(),
+          dungeonProgressStallMs: z.number().int().min(5000).max(300000).optional()
         })
         .optional(),
       accountUsername: z.string().min(1).optional(),
@@ -428,10 +431,16 @@ async function getProgressionSnapshot(base: string, logLimit: number): Promise<u
   const hp = asRecord(stats.hp);
   const mana = asRecord(stats.mana);
   const xp = asRecord(stats.xp);
-  const weapon = text(stats.weapon) ?? upgradeLabel("Rusty Sword", numeric(knownState.weaponUpgrade));
-  const armor = text(stats.armor) ?? upgradeLabel("Armor", numeric(knownState.armorUpgrade));
-  const weaponUpgrade = parseUpgrade(weapon) ?? numeric(knownState.weaponUpgrade);
-  const armorUpgrade = parseUpgrade(armor) ?? numeric(knownState.armorUpgrade);
+  const visibleWeapon = text(stats.weapon);
+  const visibleArmor = text(stats.armor);
+  const weaponMissing = /^None\b/i.test(visibleWeapon ?? "");
+  const armorMissing = /^None\b/i.test(visibleArmor ?? "");
+  const weaponUpgrade = parseUpgrade(visibleWeapon) ?? (weaponMissing ? undefined : numeric(knownState.weaponUpgrade));
+  const armorUpgrade = parseUpgrade(visibleArmor) ?? (armorMissing ? undefined : numeric(knownState.armorUpgrade));
+  const weaponPower = parseItemRating(visibleWeapon) ?? (weaponMissing ? undefined : numeric(knownState.weaponPower));
+  const armorValue = parseItemRating(visibleArmor) ?? (armorMissing ? undefined : numeric(knownState.armorValue));
+  const weapon = visibleWeapon ?? itemLabel("Weapon", weaponUpgrade, weaponPower) ?? upgradeLabel("Rusty Sword", weaponUpgrade);
+  const armor = visibleArmor ?? itemLabel("Armor", armorUpgrade, armorValue) ?? upgradeLabel("Armor", armorUpgrade);
   const levelGate = numeric(tuning.questBossMinLevel) ?? 4;
   const weaponGate = numeric(tuning.questBossMinWeaponUpgrade) ?? 0;
   const armorGate = numeric(tuning.questBossMinArmorUpgrade) ?? 0;
@@ -464,8 +473,8 @@ async function getProgressionSnapshot(base: string, logLimit: number): Promise<u
     },
     bossReadiness: [
       gate("level", level, levelGate, level !== undefined && level >= levelGate),
-      gate("weapon", weaponUpgrade, weaponGate, weaponUpgrade === undefined || weaponUpgrade >= weaponGate),
-      gate("armor", armorUpgrade, armorGate, armorUpgrade === undefined || armorUpgrade >= armorGate),
+      gate("weapon", weapon, `+${weaponGate} or power ${5 + weaponGate}`, !weaponMissing && isWeaponValueReady(weaponUpgrade, weaponPower, weaponGate)),
+      gate("armor", armor, `+${armorGate} or armor ${3 + armorGate}`, !armorMissing && isArmorValueReady(armorUpgrade, armorValue, armorGate)),
       gate("quest", questAccepted ? "Elite Slayer" : undefined, "Elite Slayer accepted", questAccepted),
       gate("fightHpRatio", hpRatio, hpGate, hpRatio !== undefined && hpRatio > hpGate),
       gate("bossTarget", target, "not currently engaged", !target || !/Boss|Shadow Overlord/i.test(target))
@@ -625,9 +634,37 @@ function upgradeLabel(label: string, upgrade: number | undefined): string | unde
   return upgrade === undefined ? undefined : `${label} +${upgrade}`;
 }
 
+function itemLabel(label: string, upgrade: number | undefined, rating: number | undefined): string | undefined {
+  if (rating === undefined) {
+    return upgradeLabel(label, upgrade);
+  }
+  return upgrade === undefined ? `${label} (${rating})` : `${label} +${upgrade} (${rating})`;
+}
+
 function parseUpgrade(value: string | undefined): number | undefined {
   const match = value?.match(/\+(\d+)/);
   return match ? Number(match[1]) : undefined;
+}
+
+function parseItemRating(value: string | undefined): number | undefined {
+  const match = value?.match(/\((\d+)\)/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function isWeaponValueReady(upgrade: number | undefined, power: number | undefined, requiredUpgrade: number): boolean {
+  return (
+    (upgrade !== undefined && upgrade >= requiredUpgrade) ||
+    (power !== undefined && power >= 5 + requiredUpgrade) ||
+    (upgrade === undefined && power === undefined)
+  );
+}
+
+function isArmorValueReady(upgrade: number | undefined, armor: number | undefined, requiredUpgrade: number): boolean {
+  return (
+    (upgrade !== undefined && upgrade >= requiredUpgrade) ||
+    (armor !== undefined && armor >= 3 + requiredUpgrade) ||
+    (upgrade === undefined && armor === undefined)
+  );
 }
 
 function questLooksAccepted(stats: Record<string, unknown>, logs: Record<string, unknown>[]): boolean {

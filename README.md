@@ -10,7 +10,8 @@ bun install
 bun run dev
 ```
 
-Open `http://localhost:8787`.
+Open `http://localhost:8787` for the terminal console or
+`http://localhost:8787/world` for the live tactical progression view.
 
 `bun run dev` uses Bun hot reload and keeps the local process alive while
 reloading the HTTP handler and bot methods. Use `bun run dev:restart` only when
@@ -156,6 +157,15 @@ budget when the game returns.
 
 Generated bot passwords are redacted in `/api/raw`.
 
+## Live progression view
+
+`/world` is the primary progress surface for a win run. It parses the current
+terminal map into a canvas tactical view with live player movement, threat
+fields, route planning, boss-readiness gates, replay snapshots, and recent bot
+timeline events. Clicking a readiness gate focuses the relevant route target
+such as the inn, merchant, quest board, mobs, or boss. The route panel can step
+one tile at a time when manual input is enabled.
+
 ## State art generator
 
 Generate a consistent TUICraft tactical concept prompt from the current local
@@ -181,8 +191,10 @@ with `--model`, `--size`, and `--quality`, or the `TUICRAFT_ART_MODEL`,
 `--template` to ignore the live screen and regenerate from the base
 Codex9tqnwg/Northshire/Fargodeep template.
 
-To generate ongoing state-art captures through the MCP control server every
-five minutes while a run is active:
+State art is optional for milestone captures. For ongoing progress, use
+`/world` or the MCP `tuicraft_get_progression` and `tuicraft_get_world` tools.
+To generate state-art captures through the MCP control server every five
+minutes while a run is active:
 
 ```sh
 bun run art:watch -- \
@@ -215,6 +227,8 @@ Exposed tools:
 - `tuicraft_stop_session`: stop the SSH bridge
 - `tuicraft_get_screen`: current screen plus parsed state summary
 - `tuicraft_get_bot`: bot status and recent logs
+- `tuicraft_get_world`: parsed map, entities, character state, and bot logs
+- `tuicraft_get_progression`: compact boss-readiness and progression timeline
 - `tuicraft_get_raw`: recent redacted SSH telemetry chunks
 - `tuicraft_start_bot`: bounded bot run with reconnect caps
 - `tuicraft_stop_bot`: stop current bot run
@@ -226,5 +240,6 @@ Exposed tools:
 - `tuicraft_snapshot`: capture session, screen summary, bot/logs, optional raw
   telemetry, and optional state-art output
 
-Resources are available at `tuicraft://screen`, `tuicraft://bot`, and
-`tuicraft://session`, `tuicraft://bot/log`, and `tuicraft://raw`.
+Resources are available at `tuicraft://screen`, `tuicraft://bot`,
+`tuicraft://world`, `tuicraft://progression`, `tuicraft://session`,
+`tuicraft://bot/log`, and `tuicraft://raw`.
