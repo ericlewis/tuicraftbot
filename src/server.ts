@@ -1649,7 +1649,7 @@ class BotRunner {
         const mobStep = this.stepToward(state, ["M"], "onto", {
           blockedChars: ["D", "P"],
           avoidAdjacentKinds: ["B"],
-          avoidRadius: 3
+          avoidRadius: 1
         });
         if (mobStep && hpRatio > run.tuning.safeTargetHealHpRatio) {
           return { label: "seek mob away from under-ready boss", key: mobStep };
