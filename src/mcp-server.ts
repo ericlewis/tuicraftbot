@@ -186,6 +186,7 @@ server.registerTool(
           mageMeleeFinishHp: z.number().int().min(0).max(10000).optional(),
           mageManaRestMs: z.number().int().min(0).max(120000).optional(),
           maxAdjacentRegularMobs: z.number().int().min(1).max(8).optional(),
+          nearLevelFallbackXpRemaining: z.number().int().min(0).max(10000).optional(),
           targetHpResetBailCount: z.number().int().min(1).max(10).optional(),
           regularFightTimeoutMs: z.number().int().min(5000).max(300000).optional()
         })
