@@ -43,6 +43,17 @@ server.registerResource(
 );
 
 server.registerResource(
+  "tuicraft-progression",
+  "tuicraft://progression",
+  {
+    title: "TUICraft Progression Summary",
+    description: "Compact character progression, boss-readiness gates, and recent strategic timeline.",
+    mimeType: "application/json"
+  },
+  async () => jsonResource("tuicraft://progression", await getProgressionSnapshot(apiBase(), 240))
+);
+
+server.registerResource(
   "tuicraft-session",
   "tuicraft://session",
   {
@@ -148,6 +159,18 @@ server.registerTool(
     }
   },
   async ({ logLimit }) => textResult(await apiGet(apiBase(), `/api/world?limit=${logLimit}`))
+);
+
+server.registerTool(
+  "tuicraft_get_progression",
+  {
+    title: "Get TUICraft progression summary",
+    description: "Read compact character progression, boss-readiness gates, equipment, and recent strategic timeline.",
+    inputSchema: {
+      logLimit: z.number().int().min(1).max(500).default(240)
+    }
+  },
+  async ({ logLimit }) => textResult(await getProgressionSnapshot(apiBase(), logLimit))
 );
 
 server.registerTool(
@@ -394,6 +417,66 @@ async function getBotSnapshot(base: string, logLimit: number): Promise<unknown> 
   return { bot, log };
 }
 
+async function getProgressionSnapshot(base: string, logLimit: number): Promise<unknown> {
+  const world = asRecord(await apiGet(base, `/api/world?limit=${logLimit}`));
+  const stats = asRecord(world.stats);
+  const bot = asRecord(world.bot);
+  const knownState = asRecord(bot.knownState);
+  const tuning = asRecord(bot.tuning);
+  const logs = Array.isArray(world.logs) ? world.logs.map(asRecord) : [];
+  const level = numeric(stats.level) ?? numeric(knownState.level);
+  const hp = asRecord(stats.hp);
+  const mana = asRecord(stats.mana);
+  const xp = asRecord(stats.xp);
+  const weapon = text(stats.weapon) ?? upgradeLabel("Rusty Sword", numeric(knownState.weaponUpgrade));
+  const armor = text(stats.armor) ?? upgradeLabel("Armor", numeric(knownState.armorUpgrade));
+  const weaponUpgrade = parseUpgrade(weapon) ?? numeric(knownState.weaponUpgrade);
+  const armorUpgrade = parseUpgrade(armor) ?? numeric(knownState.armorUpgrade);
+  const levelGate = numeric(tuning.questBossMinLevel) ?? 4;
+  const weaponGate = numeric(tuning.questBossMinWeaponUpgrade) ?? 0;
+  const armorGate = numeric(tuning.questBossMinArmorUpgrade) ?? 0;
+  const hpGate = numeric(tuning.questBossMinFightHpRatio) ?? 0.3;
+  const hpRatio = numeric(hp.ratio) ?? ratio(hp);
+  const questAccepted = questLooksAccepted(stats, logs);
+  const target = text(stats.target);
+
+  return {
+    timestamp: new Date().toISOString(),
+    state: {
+      mapName: text(world.mapName),
+      objective: text(world.objective),
+      name: text(stats.name) ?? text(bot.characterName),
+      className: text(stats.className) ?? text(knownState.className) ?? text(bot.characterClass),
+      level,
+      hp: meterSummary(hp),
+      mana: meterSummary(mana),
+      xp: meterSummary(xp),
+      gold: numeric(stats.gold) ?? numeric(knownState.gold),
+      weapon,
+      armor,
+      quest: text(stats.quest) ?? (questAccepted ? "Elite Slayer" : undefined),
+      target,
+      targetHp: meterSummary(asRecord(stats.targetHp)),
+      botStatus: text(bot.status),
+      actionCount: numeric(bot.actionCount),
+      judge: bot.judge,
+      chat: bot.chat
+    },
+    bossReadiness: [
+      gate("level", level, levelGate, level !== undefined && level >= levelGate),
+      gate("weapon", weaponUpgrade, weaponGate, weaponUpgrade === undefined || weaponUpgrade >= weaponGate),
+      gate("armor", armorUpgrade, armorGate, armorUpgrade === undefined || armorUpgrade >= armorGate),
+      gate("quest", questAccepted ? "Elite Slayer" : undefined, "Elite Slayer accepted", questAccepted),
+      gate("fightHpRatio", hpRatio, hpGate, hpRatio !== undefined && hpRatio > hpGate),
+      gate("bossTarget", target, "not currently engaged", !target || !/Boss|Shadow Overlord/i.test(target))
+    ],
+    timeline: logs
+      .map((entry, index) => progressionTimelineEntry(entry, index))
+      .filter(Boolean)
+      .slice(-40)
+  };
+}
+
 async function captureSnapshot(params: {
   includeText: boolean;
   includeLines: boolean;
@@ -508,6 +591,90 @@ function buildStateArtPath(outDir: string, label: string | undefined): string {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function numeric(value: unknown): number | undefined {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function ratio(record: Record<string, unknown>): number | undefined {
+  const current = numeric(record.current);
+  const max = numeric(record.max);
+  if (current === undefined || max === undefined || max <= 0) {
+    return undefined;
+  }
+  return current / max;
+}
+
+function meterSummary(record: Record<string, unknown>): { current: number; max: number; ratio: number } | undefined {
+  const current = numeric(record.current);
+  const max = numeric(record.max);
+  const meterRatio = numeric(record.ratio) ?? ratio(record);
+  if (current === undefined || max === undefined || meterRatio === undefined) {
+    return undefined;
+  }
+  return { current, max, ratio: meterRatio };
+}
+
+function upgradeLabel(label: string, upgrade: number | undefined): string | undefined {
+  return upgrade === undefined ? undefined : `${label} +${upgrade}`;
+}
+
+function parseUpgrade(value: string | undefined): number | undefined {
+  const match = value?.match(/\+(\d+)/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function questLooksAccepted(stats: Record<string, unknown>, logs: Record<string, unknown>[]): boolean {
+  if (/Elite Slayer|Active|Ready|In Progress/i.test(text(stats.quest) ?? "")) {
+    return true;
+  }
+  return logs.some((entry) => {
+    const line = `${text(entry.message) ?? ""} ${JSON.stringify(entry.data ?? {})}`;
+    return /accept elite quest|Quest '.*' accepted|Quest:\s*Elite Slayer|Elite Slayer/i.test(line);
+  });
+}
+
+function gate(id: string, value: unknown, required: unknown, ready: boolean): Record<string, unknown> {
+  return {
+    id,
+    value,
+    required,
+    status: ready ? "ready" : "blocked"
+  };
+}
+
+function progressionTimelineEntry(entry: Record<string, unknown>, index: number): Record<string, unknown> | undefined {
+  const message = text(entry.message) ?? "";
+  const data = asRecord(entry.data);
+  const line = `${message} ${JSON.stringify(data)}`;
+  if (!/bot started|bot completed|stopped|state changed|buy|sell|quest|boss|elite|judge|death|dead|recover|level|heal|stuck|bail|fireball|win/i.test(line)) {
+    return undefined;
+  }
+  const title =
+    message === "state changed"
+      ? `${text(data.map) ?? "state"} · L${numeric(data.level) ?? "?"}`
+      : message;
+  return {
+    id: `log-${index}`,
+    ts: text(entry.ts),
+    level: text(entry.level),
+    title,
+    hp: text(data.hp),
+    mana: text(data.mana),
+    xp: text(data.xp),
+    gold: numeric(data.gold),
+    target: text(data.target),
+    targetHp: text(data.targetHp),
+    actionFrom: text(data.from),
+    actionTo: text(data.to),
+    data
+  };
 }
 
 function textResult(value: unknown) {
