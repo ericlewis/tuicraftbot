@@ -2863,11 +2863,12 @@ class BotRunner {
     const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade ?? 0;
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade ?? 0;
     const hasteLevel = state.hasteLevel ?? run.lastKnownHasteLevel ?? 0;
+    const probeCostRatio = 0.8;
+    const estimatedWeaponCost = run.tuning.upgradeCostBaseGold * (weaponUpgrade + 1);
+    const estimatedArmorCost = run.tuning.upgradeCostBaseGold * (armorUpgrade + 1);
     const canAffordKnownUpgrade =
-      (weaponUpgrade < run.tuning.maxWeaponUpgrade &&
-        gold >= run.tuning.upgradeCostBaseGold * (weaponUpgrade + 1)) ||
-      (armorUpgrade < run.tuning.maxArmorUpgrade &&
-        gold >= run.tuning.upgradeCostBaseGold * (armorUpgrade + 1)) ||
+      (weaponUpgrade < run.tuning.maxWeaponUpgrade && gold >= estimatedWeaponCost * probeCostRatio) ||
+      (armorUpgrade < run.tuning.maxArmorUpgrade && gold >= estimatedArmorCost * probeCostRatio) ||
       (hasteLevel < run.tuning.maxHasteLevel && gold >= this.estimatedHasteCost(hasteLevel));
     if (!canAffordKnownUpgrade) {
       return false;
