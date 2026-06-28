@@ -1378,10 +1378,13 @@ class BotRunner {
         state.maxDepth > 1 &&
         Date.now() < run.savedDepthBlockedUntil
       ) {
-        const doorStep = this.stepToward(state, ["D"], "onto", { avoidAdjacentKinds: ["S"] });
-        if (doorStep) {
-          return { label: "enter fallback quest portal", key: doorStep };
+        if (this.shouldTopOffNearLevel(run, state)) {
+          const doorStep = this.stepToward(state, ["D"], "onto", { avoidAdjacentKinds: ["S"] });
+          if (doorStep) {
+            return { label: "enter fallback quest portal", key: doorStep };
+          }
         }
+        return { label: "wait out saved-depth block", wait: true };
       }
 
       if (/Dungeon Portal|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
