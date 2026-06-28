@@ -1528,6 +1528,21 @@ class BotRunner {
       }
 
       if (
+        !this.hasAcceptedEliteQuest(run, state) &&
+        readyForEliteQuest &&
+        !this.hasQuestBossLevelAndGearReadiness(run, state) &&
+        this.shouldTopOffNearLevel(run, state) &&
+        state.maxDepth &&
+        state.maxDepth > 1
+      ) {
+        const doorStep = this.stepToward(state, ["D"], "onto", { avoidAdjacentKinds: ["S"] });
+        if (doorStep) {
+          return { label: "go to fallback level topoff dungeon door", key: doorStep };
+        }
+        return { label: "enter fallback level topoff dungeon portal", command: "/enter 1" };
+      }
+
+      if (
         this.hasAcceptedEliteQuest(run, state) &&
         !this.hasQuestBossReadiness(run, state) &&
         state.maxDepth &&
@@ -1740,6 +1755,7 @@ class BotRunner {
       }
       const canGoDeeper =
         !run.questAccepted &&
+        !shouldTopOffNearLevel &&
         state.level >= (state.mapLevel ?? 1) + run.tuning.goDeeperLevelMargin &&
         hpRatio > run.tuning.goDeeperHpRatio;
       if (canGoDeeper && (nearestBoss === undefined || nearestBoss > run.tuning.earlyBossContactDistance)) {
@@ -2424,6 +2440,9 @@ class BotRunner {
       }
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
+    if (state.level >= run.tuning.eliteQuestMinLevel && this.shouldTopOffNearLevel(run, state)) {
+      return { label: "enter fallback level topoff dungeon portal", command: "/enter 1" };
+    }
     if (state.maxDepth && state.maxDepth > 1 && state.level >= 4) {
       return { label: "enter saved dungeon depth", command: "/enter 2" };
     }
@@ -2633,7 +2652,10 @@ class BotRunner {
         /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill|Quest:\s*Elite Slayer\s*\((?:Active|Ready!)\)/i.test(
           screen.text
         ),
-      questComplete: /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest complete|Reward claimed/i.test(screen.text),
+      questComplete:
+        /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest complete|Reward claimed|Quest:\s*Elite Slayer\s*\(Ready!\)/i.test(
+          screen.text
+        ),
       noActiveQuest: /\bNo active quest\b/i.test(screen.text),
       manaExhausted: noManaIndex >= 0 && noManaIndex > manaRestIndex,
       dead: deathTextVisible && !inTown ? true : hpMatch ? Number(hpMatch[1]) <= 0 : false,
