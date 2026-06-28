@@ -1713,6 +1713,9 @@ class BotRunner {
             nearestBoss <= run.tuning.earlyBossAvoidDistance)
       );
       if (eliteTooStrong) {
+        if (questBossRun && !this.hasQuestBossReadiness(run, state)) {
+          return { label: "bail from under-geared elite target", command: "/stuck" };
+        }
         const awayStep = this.stepAwayFrom(state, ["M", "B"], { blockedChars: ["D"] });
         if (awayStep) {
           return { label: "sidestep elite target", key: awayStep };
@@ -1859,6 +1862,7 @@ class BotRunner {
       action.label === "bail to buy upgrade" ||
       action.label === "bail from unsafe dungeon route" ||
       action.label === "bail from under-geared boss contact" ||
+      action.label === "bail from under-geared elite target" ||
       action.label === "bail from multi-mob low-level fight" ||
       action.label === "evade saved-depth boss contact" ||
       action.label === "bail from nearby boss before farming" ||
