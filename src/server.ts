@@ -1420,8 +1420,8 @@ class BotRunner {
           savedDepthFarmLevel !== undefined &&
           state.mapLevel &&
           state.mapLevel >= savedDepthFarmLevel &&
-          (state.targetIsBoss ||
-            (nearestBoss !== undefined && nearestBoss <= run.tuning.earlyBossContactDistance))
+          nearestBoss !== undefined &&
+          nearestBoss <= run.tuning.earlyBossContactDistance
       );
       if (savedDepthBossBlocked) {
         run.savedDepthBlockedUntil = Date.now() + 45_000;
@@ -1697,7 +1697,14 @@ class BotRunner {
       if (manageableElite) {
         return { label: "bail to heal after elite chip", command: "/stuck" };
       }
-      const eliteTooStrong = Boolean(state.targetIsEliteOrBoss && !canFightQuestBoss && state.targetLevel);
+      const eliteTooStrong = Boolean(
+        state.targetIsEliteOrBoss &&
+          !canFightQuestBoss &&
+          state.targetLevel &&
+          (!state.targetIsBoss ||
+            nearestBoss === undefined ||
+            nearestBoss <= run.tuning.earlyBossAvoidDistance)
+      );
       if (eliteTooStrong) {
         const awayStep = this.stepAwayFrom(state, ["M", "B"], { blockedChars: ["D"] });
         if (awayStep) {
