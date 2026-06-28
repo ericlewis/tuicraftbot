@@ -30,7 +30,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
       font: 14px/1.42 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     a { color: var(--cyan); text-decoration: none; }
-    button, input {
+    button, input, select {
       border: 1px solid var(--line);
       border-radius: 6px;
       background: #1b2530;
@@ -44,6 +44,10 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
     button:hover { border-color: var(--cyan); }
     input[type="range"] { accent-color: var(--cyan); }
+    select {
+      min-height: 30px;
+      padding: 0 8px;
+    }
     .shell {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 360px;
@@ -403,14 +407,23 @@ export const WORLD_HTML = String.raw`<!doctype html>
       height: 34px;
       display: block;
     }
-    .timeline-tools {
+    .timeline-tools,
+    .replay-tools {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
     }
-    .timeline-tools button {
+    .timeline-tools button,
+    .replay-tools button {
       min-height: 30px;
       font-size: 12px;
+    }
+    .replay {
+      display: grid;
+      gap: 7px;
+    }
+    .replay input[type="range"] {
+      width: 100%;
     }
     .timeline {
       display: grid;
@@ -482,6 +495,20 @@ export const WORLD_HTML = String.raw`<!doctype html>
           <label class="check"><input id="follow" type="checkbox">Follow</label>
           <label class="check"><input id="labels" type="checkbox" checked>Labels</label>
           <label class="check"><input id="manual" type="checkbox">Manual input</label>
+          <label class="check">Focus
+            <select id="focus">
+              <option value="auto">Auto</option>
+              <option value="target">Target</option>
+              <option value="boss">Boss</option>
+              <option value="dungeon">Dungeon</option>
+              <option value="portal">Portal</option>
+              <option value="mob">Mob</option>
+              <option value="chest">Chest</option>
+              <option value="merchant">Merchant</option>
+              <option value="quest">Quest</option>
+              <option value="inn">Inn</option>
+            </select>
+          </label>
           <label class="check">Zoom <input id="zoom" type="range" min="1" max="3" value="1" step="0.25"></label>
         </div>
       </header>
@@ -522,7 +549,20 @@ export const WORLD_HTML = String.raw`<!doctype html>
         </div>
       </section>
       <section>
+        <h2>Route</h2>
+        <dl id="route"></dl>
+      </section>
+      <section>
         <h2>Timeline</h2>
+        <div class="replay">
+          <input id="snapshot-range" type="range" min="0" max="0" value="0" step="1">
+          <div class="replay-tools">
+            <button id="snapshot-prev" type="button">Prev</button>
+            <button id="snapshot-play" type="button">Play</button>
+            <button id="snapshot-next" type="button">Next</button>
+          </div>
+          <div id="snapshot-status" class="detail">Live</div>
+        </div>
         <div class="timeline-tools">
           <button id="timeline-live" type="button">Live</button>
           <button id="clear-trail" type="button">Clear Trail</button>
@@ -562,22 +602,33 @@ export const WORLD_HTML = String.raw`<!doctype html>
     const characterEl = document.getElementById("character");
     const runEl = document.getElementById("run");
     const mapEl = document.getElementById("map");
+    const routeEl = document.getElementById("route");
     const logEl = document.getElementById("log");
     const timelineEl = document.getElementById("timeline");
     const timelineDetailEl = document.getElementById("timeline-detail");
     const timelineLiveEl = document.getElementById("timeline-live");
     const clearTrailEl = document.getElementById("clear-trail");
+    const snapshotRangeEl = document.getElementById("snapshot-range");
+    const snapshotPrevEl = document.getElementById("snapshot-prev");
+    const snapshotPlayEl = document.getElementById("snapshot-play");
+    const snapshotNextEl = document.getElementById("snapshot-next");
+    const snapshotStatusEl = document.getElementById("snapshot-status");
     const followEl = document.getElementById("follow");
     const labelsEl = document.getElementById("labels");
     const manualEl = document.getElementById("manual");
+    const focusEl = document.getElementById("focus");
     const zoomEl = document.getElementById("zoom");
 
     const state = {
       world: null,
       selectedWorld: null,
+      selectedTile: null,
+      routePlan: null,
       trail: [],
       snapshots: [],
       selectedTimelineId: "live",
+      selectedSnapshotId: null,
+      playbackTimer: null,
       refreshPending: false,
       eventConnected: false,
       hoverTile: null,
@@ -591,15 +642,19 @@ export const WORLD_HTML = String.raw`<!doctype html>
       floorDot: "#274433",
       wall: "#646d78",
       grid: "rgba(80, 100, 120, 0.18)",
+      cyan: "#42c6ff",
       player: "#42c6ff",
       playerGlow: "rgba(66, 198, 255, 0.28)",
       mob: "#ec6d5f",
+      red: "#ec6d5f",
       boss: "#b083ff",
       town: "#e7b45e",
       chest: "#d3924b",
       text: "#eef3f6",
       muted: "#9aa8b5",
-      path: "rgba(66, 198, 255, 0.48)"
+      path: "rgba(66, 198, 255, 0.48)",
+      route: "rgba(231, 180, 94, 0.88)",
+      routeGlow: "rgba(231, 180, 94, 0.18)"
     };
 
     function displayWorld() {
@@ -856,6 +911,94 @@ export const WORLD_HTML = String.raw`<!doctype html>
         world
       });
       state.snapshots = state.snapshots.slice(-40);
+      syncReplayControls();
+    }
+
+    function snapshotIndexById(id) {
+      return state.snapshots.findIndex((snapshot) => snapshot.id === id);
+    }
+
+    function syncReplayControls() {
+      const max = Math.max(0, state.snapshots.length - 1);
+      snapshotRangeEl.max = String(max);
+      snapshotRangeEl.disabled = state.snapshots.length === 0;
+      snapshotPrevEl.disabled = state.snapshots.length === 0;
+      snapshotNextEl.disabled = state.snapshots.length === 0;
+      const selectedIndex = state.selectedSnapshotId ? snapshotIndexById(state.selectedSnapshotId) : -1;
+      snapshotRangeEl.value = String(selectedIndex >= 0 ? selectedIndex : max);
+      snapshotPlayEl.textContent = state.playbackTimer ? "Pause" : "Play";
+      if (selectedIndex >= 0) {
+        const snapshot = state.snapshots[selectedIndex];
+        snapshotStatusEl.textContent = (selectedIndex + 1) + "/" + state.snapshots.length + " " + formatTime(snapshot.ts) + " · " + snapshot.title;
+      } else {
+        snapshotStatusEl.textContent = state.snapshots.length ? "Live · " + state.snapshots.length + " snapshots" : "Live";
+      }
+    }
+
+    function stopPlayback() {
+      if (!state.playbackTimer) return;
+      clearInterval(state.playbackTimer);
+      state.playbackTimer = null;
+      syncReplayControls();
+    }
+
+    function returnToLive() {
+      stopPlayback();
+      state.selectedTimelineId = "live";
+      state.selectedSnapshotId = null;
+      state.selectedWorld = null;
+      if (state.world) {
+        renderHud(state.world);
+        draw();
+      }
+      syncReplayControls();
+    }
+
+    function selectSnapshot(index) {
+      if (!state.snapshots.length) {
+        returnToLive();
+        return;
+      }
+      const bounded = Math.max(0, Math.min(state.snapshots.length - 1, index));
+      const snapshot = state.snapshots[bounded];
+      state.selectedTimelineId = snapshot.id;
+      state.selectedSnapshotId = snapshot.id;
+      state.selectedWorld = snapshot.world;
+      renderHud(snapshot.world);
+      draw();
+      syncReplayControls();
+    }
+
+    function stepSnapshot(delta) {
+      if (!state.snapshots.length) return;
+      const selectedIndex = state.selectedSnapshotId ? snapshotIndexById(state.selectedSnapshotId) : state.snapshots.length - 1;
+      const nextIndex = selectedIndex + delta;
+      if (nextIndex >= state.snapshots.length) {
+        returnToLive();
+        return;
+      }
+      selectSnapshot(nextIndex < 0 ? 0 : nextIndex);
+    }
+
+    function togglePlayback() {
+      if (state.playbackTimer) {
+        stopPlayback();
+        return;
+      }
+      if (!state.snapshots.length) return;
+      let index = state.selectedSnapshotId ? snapshotIndexById(state.selectedSnapshotId) : 0;
+      if (index < 0 || index >= state.snapshots.length - 1) index = 0;
+      selectSnapshot(index);
+      state.playbackTimer = setInterval(() => {
+        const selectedIndex = state.selectedSnapshotId ? snapshotIndexById(state.selectedSnapshotId) : -1;
+        const nextIndex = selectedIndex + 1;
+        if (nextIndex >= state.snapshots.length) {
+          returnToLive();
+          return;
+        }
+        selectSnapshot(nextIndex);
+      }, 850);
+      syncReplayControls();
     }
 
     function buildTimelineEntries(world) {
@@ -974,6 +1117,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
         ["bosses", countKind("boss")],
         ["doors", countKind("dungeon")]
       ]);
+      renderRoute(world);
       logEl.innerHTML = (world.logs || []).slice(-10).reverse().map((entry) => {
         const data = entry.data ? " " + JSON.stringify(entry.data) : "";
         return "<li>[" + escapeHtml(entry.level) + "] " + escapeHtml(entry.message + data) + "</li>";
@@ -992,6 +1136,229 @@ export const WORLD_HTML = String.raw`<!doctype html>
     function findEntity(kind, world = displayWorld()) {
       world = world || {};
       return (world.entities || []).find((entity) => entity.kind === kind);
+    }
+
+    function nearestEntity(kinds, world, origin) {
+      const wanted = new Set(kinds);
+      const entities = (world.entities || []).filter((entity) => wanted.has(entity.kind));
+      if (!entities.length) return null;
+      if (!origin) return entities[0];
+      return entities
+        .map((entity) => ({ entity, distance: Math.abs(entity.x - origin.x) + Math.abs(entity.y - origin.y) }))
+        .sort((a, b) => a.distance - b.distance)[0].entity;
+    }
+
+    function inferFocusMode(world) {
+      const stats = world.stats || {};
+      const bot = world.bot || {};
+      const progression = world.progression || {};
+      const recentAction = ((progression.recentAction || bot.lastAction || {}).label || "");
+      const text = [world.objective || "", progression.phase || "", recentAction].join(" ");
+      if (stats.target) return /Boss|Shadow Overlord/i.test(stats.target) ? "boss" : "target";
+      if (/buy|sell|merchant|economy/i.test(text)) return "merchant";
+      if (/heal|recover|rest|inn/i.test(text)) return "inn";
+      if (/turn in|reward|quest board/i.test(text)) return "quest";
+      if (/Boss|Shadow Overlord|boss route|boss approach/i.test(text)) return "boss";
+      if (/Town|Abbey/i.test(world.mapName || "")) return "dungeon";
+      if ((world.entities || []).some((entity) => entity.kind === "boss")) return "boss";
+      if ((world.entities || []).some((entity) => entity.kind === "chest")) return "chest";
+      return "mob";
+    }
+
+    function titleCase(value) {
+      return String(value || "").slice(0, 1).toUpperCase() + String(value || "").slice(1);
+    }
+
+    function routeTargetMode(entity) {
+      if (!entity) return "onto";
+      if (["merchant", "quest", "inn", "mob", "boss", "chest"].includes(entity.kind)) return "adjacent";
+      return "onto";
+    }
+
+    function routeTargetForFocus(mode, world, player) {
+      if (mode === "auto") {
+        const candidates = [inferFocusMode(world), "dungeon", "portal", "boss", "mob", "chest", "merchant", "quest", "inn"];
+        const seen = new Set();
+        for (const candidate of candidates) {
+          if (seen.has(candidate)) continue;
+          seen.add(candidate);
+          const target = routeTargetForFocus(candidate, world, player);
+          if (target) {
+            target.source = "Auto " + target.source;
+            return target;
+          }
+        }
+        return null;
+      }
+      if (mode === "target") {
+        const targetText = (world.stats || {}).target || "";
+        if (/Boss|Shadow Overlord/i.test(targetText)) mode = "boss";
+        else mode = "mob";
+      }
+      const kindSets = {
+        boss: ["boss"],
+        dungeon: ["dungeon"],
+        portal: ["portal"],
+        mob: ["mob"],
+        chest: ["chest"],
+        merchant: ["merchant"],
+        quest: ["quest"],
+        inn: ["inn"]
+      };
+      const entity = nearestEntity(kindSets[mode] || [], world, player);
+      if (!entity) return null;
+      return {
+        x: entity.x,
+        y: entity.y,
+        label: entity.label || titleCase(mode),
+        kind: entity.kind,
+        marker: entity.marker,
+        mode: routeTargetMode(entity),
+        source: titleCase(mode)
+      };
+    }
+
+    function routeTargetForWorld(world) {
+      const player = findEntity("player", world);
+      if (state.selectedTile && state.selectedTile.mapName === world.mapName) {
+        const entity = (world.entities || []).find((candidate) => candidate.x === state.selectedTile.x && candidate.y === state.selectedTile.y);
+        return {
+          x: state.selectedTile.x,
+          y: state.selectedTile.y,
+          label: entity ? entity.label : "Pinned tile",
+          kind: entity ? entity.kind : "tile",
+          marker: entity ? entity.marker : "",
+          mode: entity ? routeTargetMode(entity) : "onto",
+          source: "Pinned"
+        };
+      }
+      return routeTargetForFocus(focusEl.value || "auto", world, player);
+    }
+
+    function routeKey(point) {
+      return point.x + "," + point.y;
+    }
+
+    function pointFromKey(key) {
+      const parts = key.split(",");
+      return { x: Number(parts[0]), y: Number(parts[1]) };
+    }
+
+    function isWallChar(ch) {
+      return ch === "█" || ch === "#";
+    }
+
+    function entityAt(world, x, y) {
+      return (world.entities || []).find((entity) => entity.x === x && entity.y === y);
+    }
+
+    function isRouteWalkable(world, x, y, target, allowTarget) {
+      if (!world.grid || x < 0 || y < 0 || x >= world.grid.width || y >= world.grid.height) return false;
+      const ch = (world.grid.rows[y] || "")[x] || " ";
+      if (isWallChar(ch)) return false;
+      const entity = entityAt(world, x, y);
+      if (!entity || entity.kind === "player") return true;
+      return Boolean(allowTarget && target && x === target.x && y === target.y);
+    }
+
+    function targetCellsForRoute(world, target) {
+      if (!target) return [];
+      if (target.mode === "onto" && isRouteWalkable(world, target.x, target.y, target, true)) {
+        return [{ x: target.x, y: target.y }];
+      }
+      return [
+        { x: target.x + 1, y: target.y },
+        { x: target.x - 1, y: target.y },
+        { x: target.x, y: target.y + 1 },
+        { x: target.x, y: target.y - 1 }
+      ].filter((point) => isRouteWalkable(world, point.x, point.y, target, false));
+    }
+
+    function directionLabel(from, to) {
+      if (!from || !to) return "";
+      if (to.x > from.x) return "E";
+      if (to.x < from.x) return "W";
+      if (to.y > from.y) return "S";
+      if (to.y < from.y) return "N";
+      return "hold";
+    }
+
+    function computeRoutePlan(world) {
+      if (!world || !world.grid || !world.grid.rows || !world.grid.rows.length) return null;
+      const player = findEntity("player", world);
+      const target = routeTargetForWorld(world);
+      if (!player || !target) {
+        return { target, path: [], distance: undefined, next: "", status: "none" };
+      }
+      const targetCells = targetCellsForRoute(world, target);
+      if (!targetCells.length) {
+        return { target, path: [], distance: undefined, next: "", status: "blocked" };
+      }
+      const targetKeys = new Set(targetCells.map(routeKey));
+      const startKey = routeKey(player);
+      const queue = [player];
+      const seen = new Set([startKey]);
+      const cameFrom = new Map();
+      let foundKey = targetKeys.has(startKey) ? startKey : "";
+      for (let index = 0; index < queue.length && !foundKey; index += 1) {
+        const current = queue[index];
+        const neighbors = [
+          { x: current.x + 1, y: current.y },
+          { x: current.x - 1, y: current.y },
+          { x: current.x, y: current.y + 1 },
+          { x: current.x, y: current.y - 1 }
+        ];
+        for (const next of neighbors) {
+          const key = routeKey(next);
+          if (seen.has(key)) continue;
+          if (!isRouteWalkable(world, next.x, next.y, target, target.mode === "onto")) continue;
+          seen.add(key);
+          cameFrom.set(key, routeKey(current));
+          if (targetKeys.has(key)) {
+            foundKey = key;
+            break;
+          }
+          queue.push(next);
+        }
+      }
+      if (!foundKey) {
+        return { target, path: [], distance: undefined, next: "", status: "blocked" };
+      }
+      const path = [];
+      for (let cursor = foundKey; cursor; cursor = cameFrom.get(cursor)) {
+        path.push(pointFromKey(cursor));
+        if (cursor === startKey) break;
+      }
+      path.reverse();
+      return {
+        target,
+        path,
+        distance: Math.max(0, path.length - 1),
+        next: directionLabel(path[0], path[1]),
+        status: "routable"
+      };
+    }
+
+    function renderRoute(world, plan = computeRoutePlan(world)) {
+      state.routePlan = plan;
+      if (!plan || !plan.target) {
+        routeEl.innerHTML = pairRows([
+          ["focus", focusEl.value || "auto"],
+          ["target", ""],
+          ["range", ""],
+          ["next", ""],
+          ["status", "none"]
+        ]);
+        return;
+      }
+      routeEl.innerHTML = pairRows([
+        ["focus", plan.target.source || focusEl.value || "auto"],
+        ["target", plan.target.label + " " + plan.target.x + "," + plan.target.y],
+        ["range", plan.distance !== undefined ? plan.distance + " tiles" : ""],
+        ["next", plan.next || ""],
+        ["mode", plan.target.mode],
+        ["status", plan.status]
+      ]);
     }
 
     function updateTrail(world) {
@@ -1056,9 +1423,12 @@ export const WORLD_HTML = String.raw`<!doctype html>
         }
       }
       drawTrail(cell, offsetX, offsetY);
+      state.routePlan = computeRoutePlan(world);
+      drawRoute(state.routePlan, cell, offsetX, offsetY);
       for (const entity of world.entities || []) {
         drawEntity(entity, cell, offsetX, offsetY);
       }
+      drawPinnedTile(cell, offsetX, offsetY, world);
       if (state.hoverTile) {
         ctx.strokeStyle = "rgba(238, 243, 246, 0.75)";
         ctx.lineWidth = 2;
@@ -1113,6 +1483,55 @@ export const WORLD_HTML = String.raw`<!doctype html>
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.stroke();
+    }
+
+    function drawRoute(plan, cell, offsetX, offsetY) {
+      if (!plan || !plan.target) return;
+      const targetCx = offsetX + (plan.target.x + 0.5) * cell;
+      const targetCy = offsetY + (plan.target.y + 0.5) * cell;
+      ctx.save();
+      if (plan.path && plan.path.length > 1) {
+        ctx.beginPath();
+        plan.path.forEach((point, index) => {
+          const px = offsetX + (point.x + 0.5) * cell;
+          const py = offsetY + (point.y + 0.5) * cell;
+          if (index === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.strokeStyle = colors.routeGlow;
+        ctx.lineWidth = Math.max(7, cell * 0.5);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.stroke();
+        ctx.strokeStyle = colors.route;
+        ctx.lineWidth = Math.max(2, cell * 0.16);
+        ctx.setLineDash([Math.max(3, cell * 0.32), Math.max(3, cell * 0.24)]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        for (const point of plan.path.slice(1, -1)) {
+          const px = offsetX + (point.x + 0.5) * cell;
+          const py = offsetY + (point.y + 0.5) * cell;
+          ctx.fillStyle = colors.route;
+          ctx.beginPath();
+          ctx.arc(px, py, Math.max(2, cell * 0.12), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.strokeStyle = plan.status === "routable" ? colors.route : colors.red;
+      ctx.lineWidth = Math.max(2, cell * 0.16);
+      ctx.beginPath();
+      ctx.arc(targetCx, targetCy, Math.max(7, cell * 0.56), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawPinnedTile(cell, offsetX, offsetY, world) {
+      if (!state.selectedTile || state.selectedTile.mapName !== world.mapName) return;
+      const px = offsetX + state.selectedTile.x * cell;
+      const py = offsetY + state.selectedTile.y * cell;
+      ctx.strokeStyle = colors.cyan;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(px + 2, py + 2, cell - 4, cell - 4);
     }
 
     function drawEntity(entity, cell, offsetX, offsetY) {
@@ -1265,7 +1684,14 @@ export const WORLD_HTML = String.raw`<!doctype html>
     });
     canvas.addEventListener("click", (event) => {
       const tile = tileFromPointer(event);
-      void clickStep(tile);
+      if (manualEl.checked) {
+        void clickStep(tile);
+        return;
+      }
+      const world = displayWorld();
+      state.selectedTile = world ? { x: tile.x, y: tile.y, mapName: world.mapName } : null;
+      if (world) renderRoute(world);
+      draw();
     });
     document.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-key]");
@@ -1279,23 +1705,37 @@ export const WORLD_HTML = String.raw`<!doctype html>
       state.selectedTimelineId = button.dataset.timelineId || "live";
       timelineDetailEl.textContent = entry ? entry.detail || entry.note || entry.title : "";
       state.selectedWorld = entry && entry.kind === "snapshot" && entry.world ? entry.world : null;
+      state.selectedSnapshotId = state.selectedWorld ? entry.id : null;
       if (state.selectedWorld) {
         renderHud(state.selectedWorld);
       } else if (state.world) {
         renderHud(state.world);
       }
+      syncReplayControls();
       draw();
     });
-    timelineLiveEl.addEventListener("click", () => {
-      state.selectedTimelineId = "live";
-      state.selectedWorld = null;
-      if (state.world) {
-        renderHud(state.world);
-        draw();
-      }
-    });
+    timelineLiveEl.addEventListener("click", returnToLive);
     clearTrailEl.addEventListener("click", () => {
       state.trail = [];
+      draw();
+    });
+    snapshotRangeEl.addEventListener("input", () => {
+      stopPlayback();
+      selectSnapshot(Number(snapshotRangeEl.value) || 0);
+    });
+    snapshotPrevEl.addEventListener("click", () => stepSnapshot(-1));
+    snapshotNextEl.addEventListener("click", () => stepSnapshot(1));
+    snapshotPlayEl.addEventListener("click", togglePlayback);
+    focusEl.addEventListener("input", () => {
+      state.selectedTile = null;
+      const world = displayWorld();
+      if (world) renderRoute(world);
+      draw();
+    });
+    manualEl.addEventListener("input", () => {
+      if (manualEl.checked) state.selectedTile = null;
+      const world = displayWorld();
+      if (world) renderRoute(world);
       draw();
     });
     for (const element of [followEl, labelsEl, zoomEl]) {
@@ -1303,6 +1743,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
     new ResizeObserver(resizeCanvas).observe(wrap);
     connectEvents();
+    syncReplayControls();
     setInterval(refresh, 1500);
     refresh();
   </script>
