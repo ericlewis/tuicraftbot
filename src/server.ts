@@ -1296,7 +1296,7 @@ class BotRunner {
         run.mageManaRestUntil = 0;
       }
       if (state.hp && hpRatio < run.tuning.townHealHpRatio) {
-        const healStep = this.stepToward(state, ["I", "P"], "onto");
+        const healStep = this.stepToward(state, ["I"], "onto") ?? this.stepToward(state, ["P"], "onto");
         if (healStep) {
           return { label: "go to inn to heal", key: healStep };
         }
@@ -1311,7 +1311,7 @@ class BotRunner {
           run.mageManaRestUntil = now + run.tuning.mageManaRestMs;
         }
         if (now < run.mageManaRestUntil) {
-          const manaStep = this.stepToward(state, ["I", "P"], "onto");
+          const manaStep = this.stepToward(state, ["I"], "onto") ?? this.stepToward(state, ["P"], "onto");
           if (manaStep) {
             return { label: "go to inn to restore mage mana", key: manaStep };
           }
