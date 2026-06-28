@@ -1462,9 +1462,20 @@ class BotRunner {
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
+      const farmableSavedDepthBoss = Boolean(
+        questBossRun &&
+          !this.hasQuestBossReadiness(run, state) &&
+          state.mapName &&
+          !/Fargodeep Cave/i.test(state.mapName) &&
+          state.mapLevel &&
+          state.mapLevel >= 2 &&
+          state.targetIsBoss &&
+          state.targetLevel &&
+          state.targetLevel <= allowedTargetLevel
+      );
       const manageableElite = Boolean(
         state.targetIsEliteOrBoss &&
-          !state.targetIsBoss &&
+          (!state.targetIsBoss || farmableSavedDepthBoss) &&
           state.targetLevel &&
           state.targetLevel <= allowedTargetLevel
       );
