@@ -1455,6 +1455,36 @@ class BotRunner {
           return { label: "take dungeon door", key: deeperStep };
         }
       }
+      if (canFightQuestBoss) {
+        const engagedQuestBossNow = Boolean(state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level);
+        if (
+          hpRatio <
+          (engagedQuestBossNow
+            ? run.tuning.questBossEngagedRetreatHpRatio
+            : run.tuning.questBossPreEngageRetreatHpRatio)
+        ) {
+          return {
+            label: engagedQuestBossNow ? "bail from boss at critical hp" : "bail to top off before boss",
+            command: "/stuck"
+          };
+        }
+        if (state.targetIsBoss && isMageRun && hasSpellMana) {
+          if (!spellReady) {
+            return { label: "wait for boss spell cooldown", wait: true };
+          }
+          return { label: "cast fireball at boss", text: "f" };
+        }
+        if (state.targetIsBoss && this.hasAdjacent(state, ["B"])) {
+          return { label: "attack selected boss", key: "space" };
+        }
+        if (this.hasAdjacent(state, ["B"])) {
+          return { label: "attack adjacent boss", key: "space" };
+        }
+        const bossStep = this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D"] });
+        if (bossStep) {
+          return { label: "hunt elite or boss", key: bossStep };
+        }
+      }
       if (
         preEliteFarming &&
         canCastFireball &&
@@ -1763,6 +1793,8 @@ class BotRunner {
       action.label === "wait to finish crowded target" ||
       action.label === "cast fireball at elite" ||
       action.label === "wait for elite spell cooldown" ||
+      action.label === "cast fireball at boss" ||
+      action.label === "wait for boss spell cooldown" ||
       action.label === "kite target during cooldown"
     ) {
       return false;
