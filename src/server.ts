@@ -1508,6 +1508,10 @@ class BotRunner {
       if (shouldFarmSavedDepth) {
         return { label: "bail to saved depth for gear farm", command: "/stuck" };
       }
+      if (questBossRun && !this.hasQuestBossReadiness(run, state) && state.targetIsBoss) {
+        run.savedDepthBlockedUntil = Date.now() + 45_000;
+        return { label: "bail from under-ready boss target", command: "/stuck" };
+      }
       const savedDepthBossBlocked = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
@@ -2280,6 +2284,9 @@ class BotRunner {
       ) {
         if (this.shouldTopOffNearLevel(run, state)) {
           return { label: "enter fallback quest dungeon portal", command: "/enter 1" };
+        }
+        if (Date.now() < run.savedDepthBlockedUntil) {
+          return { label: "wait for saved-depth route reset", wait: true };
         }
         return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
       }
