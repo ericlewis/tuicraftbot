@@ -29,6 +29,7 @@
     "questBossMinWeaponUpgrade": 4,
     "questBossMinArmorUpgrade": 5,
     "maxArmorUpgrade": 5,
+    "upgradeCostBaseGold": 125,
     "earlyBossAvoidPlayerLevel": 3,
     "earlyBossAvoidDistance": 1,
     "earlyBossContactDistance": 1,
