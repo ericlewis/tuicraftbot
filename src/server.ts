@@ -88,6 +88,7 @@ type BotTuningConfig = {
   earlyBossContactDistance: number;
   maxWeaponUpgrade: number;
   maxArmorUpgrade: number;
+  maxHasteLevel: number;
   upgradeCostBaseGold: number;
   attackCooldownMs: number;
   spellCooldownMs: number;
@@ -274,6 +275,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   earlyBossContactDistance: 1,
   maxWeaponUpgrade: 4,
   maxArmorUpgrade: 4,
+  maxHasteLevel: 0,
   upgradeCostBaseGold: 100,
   attackCooldownMs: 3_000,
   spellCooldownMs: 1_500,
@@ -1442,7 +1444,12 @@ class BotRunner {
         return { label: "claim quest reward", command: "/quest claim" };
       }
 
-      if (!run.questAccepted && !state.questInProgress && readyForEliteQuest) {
+      if (
+        !run.questAccepted &&
+        !state.questInProgress &&
+        readyForEliteQuest &&
+        this.hasQuestBossLevelAndGearReadiness(run, state)
+      ) {
         const questStep = this.stepToward(state, ["Q"], "adjacent");
         if (questStep) {
           return { label: "go to quest board", key: questStep };
@@ -1471,7 +1478,20 @@ class BotRunner {
         }
       }
 
-      if (/Dungeon Portal|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
+      if (
+        this.hasAcceptedEliteQuest(run, state) &&
+        this.hasQuestBossReadiness(run, state) &&
+        state.maxDepth &&
+        state.maxDepth > 1
+      ) {
+        const doorAdjacentStep = this.stepToward(state, ["D"], "adjacent", { avoidAdjacentKinds: ["S"] });
+        if (doorAdjacentStep) {
+          return { label: "go to saved-depth portal", key: doorAdjacentStep };
+        }
+        return { label: "enter saved quest depth", command: "/enter 2" };
+      }
+
+      if (/Dungeon Portal|Destination depths|Fargodeep Cave|Jasperlode Mine|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
         return this.savedPortalAction(run, state);
       }
 
@@ -1992,8 +2012,14 @@ class BotRunner {
     if (!run.judgeEnabled || run.judgeConfigs.length === 0 || run.judgeMaxCalls <= 0) {
       return deterministicAction;
     }
+    if (deterministicAction.label === "recover from death") {
+      return deterministicAction;
+    }
 
     const state = this.parseGameState(screen);
+    if (!this.hasQuestBossLevelAndGearReadiness(run, state)) {
+      return deterministicAction;
+    }
     if (!this.shouldJudgeWinAction(state, deterministicAction)) {
       return deterministicAction;
     }
@@ -2314,6 +2340,9 @@ class BotRunner {
         }
         return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
       }
+      if (state.maxDepth && state.maxDepth > 1) {
+        return { label: "enter saved quest depth", command: "/enter 2" };
+      }
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
     if (state.maxDepth && state.maxDepth > 1 && state.level >= 4) {
@@ -2354,6 +2383,10 @@ class BotRunner {
   }
 
   private hasQuestBossReadiness(run: BotRunState, state: ParsedGameState): boolean {
+    return this.hasAcceptedEliteQuest(run, state) && this.hasQuestBossLevelAndGearReadiness(run, state);
+  }
+
+  private hasQuestBossLevelAndGearReadiness(run: BotRunState, state: ParsedGameState): boolean {
     const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade;
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
     const weaponReady =
@@ -2362,7 +2395,6 @@ class BotRunner {
     const armorReady =
       !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= run.tuning.questBossMinArmorUpgrade);
     return (
-      this.hasAcceptedEliteQuest(run, state) &&
       state.level >= Math.max(run.tuning.questBossMinLevel, state.mapLevel ?? run.tuning.questBossMinLevel) &&
       weaponReady &&
       armorReady
@@ -2425,7 +2457,11 @@ class BotRunner {
     const targetLevelMatch = targetPanelText.match(/Level:\s*(\d+)/);
     const inTown = Boolean(mapName && /Town|Abbey/i.test(mapName));
     const inDungeon = Boolean(mapName && !/Town|Abbey/i.test(mapName));
-    const deathTextVisible = /You are dead|You have died|YOU ARE DEFEATED|run out of Health|cannot attack while dead/i.test(screen.text);
+    const currentStatusText = screen.lines.slice(0, 20).join("\n");
+    const deathTextVisible =
+      /You are dead|You have died|YOU ARE DEFEATED|run out of Health|cannot attack while dead|To resurrect at Town/i.test(
+        currentStatusText
+      );
     const grid: string[][] = [];
     const entities: GameEntity[] = [];
     let player: Point | undefined;
@@ -2439,7 +2475,7 @@ class BotRunner {
       grid[y] = row;
       for (let x = 0; x < row.length; x += 1) {
         const kind = row[x];
-        if (kind === "@") {
+        if (kind === "@" || kind === "X") {
           player = { x, y };
         }
         if ("DQSICMBP".includes(kind)) {
@@ -2490,7 +2526,7 @@ class BotRunner {
       questComplete: /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest complete|Reward claimed/i.test(screen.text),
       noActiveQuest: /\bNo active quest\b/i.test(screen.text),
       manaExhausted: noManaIndex >= 0 && noManaIndex > manaRestIndex,
-      dead: hpMatch ? Number(hpMatch[1]) <= 0 : deathTextVisible && !inTown,
+      dead: deathTextVisible && !inTown ? true : hpMatch ? Number(hpMatch[1]) <= 0 : false,
       winText: this.hasSystemWinText(screen)
     };
   }
@@ -2640,14 +2676,26 @@ class BotRunner {
     const armorUpgrade = state.armorUpgrade ?? run?.lastKnownArmorUpgrade ?? 0;
     const visibleWeaponCost = state.text.match(/Weapon:\s*\+\d+\s+\(Cost:\s*(\d+)g\)/i)?.[1];
     const visibleArmorCost = state.text.match(/Armor\s*:\s*\+\d+\s+\(Cost:\s*(\d+)g\)/i)?.[1];
+    const visibleHaste = state.text.match(/Haste\s*:\s*Lvl\s*(\d+)\/(\d+)\s+\(Cost:\s*(\d+)g\)/i);
     const weaponCost = visibleWeaponCost ? Number(visibleWeaponCost) : tuning.upgradeCostBaseGold * (weaponUpgrade + 1);
     const armorCost = visibleArmorCost ? Number(visibleArmorCost) : tuning.upgradeCostBaseGold * (armorUpgrade + 1);
+    const hasteLevel = visibleHaste ? Number(visibleHaste[1]) : undefined;
+    const hasteCap = visibleHaste ? Number(visibleHaste[2]) : tuning.maxHasteLevel;
+    const hasteCost = visibleHaste ? Number(visibleHaste[3]) : undefined;
 
     if (weaponUpgrade < tuning.maxWeaponUpgrade && gold >= weaponCost) {
       return { label: "buy weapon upgrade", command: "/buy 1" };
     }
     if (armorUpgrade < tuning.maxArmorUpgrade && gold >= armorCost) {
       return { label: "buy armor upgrade", command: "/buy 2" };
+    }
+    if (
+      hasteLevel !== undefined &&
+      hasteCost !== undefined &&
+      hasteLevel < Math.min(tuning.maxHasteLevel, hasteCap) &&
+      gold >= hasteCost
+    ) {
+      return { label: "buy haste upgrade", command: "/buy 3" };
     }
     return undefined;
   }
@@ -2662,7 +2710,11 @@ class BotRunner {
     }
     const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade ?? 0;
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade ?? 0;
-    if (weaponUpgrade >= run.tuning.maxWeaponUpgrade && armorUpgrade >= run.tuning.maxArmorUpgrade) {
+    if (
+      weaponUpgrade >= run.tuning.maxWeaponUpgrade &&
+      armorUpgrade >= run.tuning.maxArmorUpgrade &&
+      run.tuning.maxHasteLevel <= 0
+    ) {
       return false;
     }
     if (run.lastMerchantCheckGold === gold && Date.now() < run.nextMerchantCheckAt) {
@@ -3495,7 +3547,7 @@ function parseWorldGrid(lines: string[]): { grid: WorldGrid; entities: WorldEnti
     }
     const end = leftPanel.lastIndexOf("│");
     const inner = end > 0 ? leftPanel.slice(1, end) : leftPanel.slice(1);
-    if (/[█#.·@]/.test(inner)) {
+    if (/[█#.·@X]/.test(inner)) {
       panelRows.push(inner);
     }
   }
@@ -3536,7 +3588,7 @@ function mapContentBounds(rows: string[]): { minX: number; maxX: number } | unde
 }
 
 function isMapContentChar(char: string | undefined): boolean {
-  return Boolean(char && /[█#.·@SQIDCBMP]/.test(char));
+  return Boolean(char && /[█#.·@XSQIDCBMP]/.test(char));
 }
 
 function parseWorldEntities(rows: string[]): WorldEntity[] {
@@ -3556,6 +3608,7 @@ function parseWorldEntities(rows: string[]): WorldEntity[] {
 function worldEntityForMarker(marker: string, x: number, y: number): WorldEntity | undefined {
   const kindByMarker: Record<string, WorldEntityKind> = {
     "@": "player",
+    X: "player",
     M: "mob",
     B: "boss",
     S: "merchant",
@@ -3567,6 +3620,7 @@ function worldEntityForMarker(marker: string, x: number, y: number): WorldEntity
   };
   const labelByMarker: Record<string, string> = {
     "@": "Player",
+    X: "Player",
     M: "Mob",
     B: "Boss",
     S: "Merchant",
@@ -3824,6 +3878,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "earlyBossContactDistance");
   setTuningNumber(tuning, source, "maxWeaponUpgrade");
   setTuningNumber(tuning, source, "maxArmorUpgrade");
+  setTuningNumber(tuning, source, "maxHasteLevel");
   setTuningNumber(tuning, source, "upgradeCostBaseGold");
   setTuningNumber(tuning, source, "attackCooldownMs");
   setTuningNumber(tuning, source, "spellCooldownMs");
@@ -3937,6 +3992,7 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
     ),
     maxWeaponUpgrade: tuneInteger(overrides, "maxWeaponUpgrade", "TUICRAFT_MAX_WEAPON_UPGRADE", 0, 20),
     maxArmorUpgrade: tuneInteger(overrides, "maxArmorUpgrade", "TUICRAFT_MAX_ARMOR_UPGRADE", 0, 20),
+    maxHasteLevel: tuneInteger(overrides, "maxHasteLevel", "TUICRAFT_MAX_HASTE_LEVEL", 0, 20),
     upgradeCostBaseGold: tuneInteger(overrides, "upgradeCostBaseGold", "TUICRAFT_UPGRADE_COST_BASE_GOLD", 1, 10_000),
     attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 200, 10_000),
     spellCooldownMs: tuneInteger(overrides, "spellCooldownMs", "TUICRAFT_SPELL_COOLDOWN_MS", 200, 10_000),
@@ -4092,6 +4148,7 @@ function buildJudgePayload(
         questBossMinLevel: tuning.questBossMinLevel,
         questBossMinWeaponUpgrade: tuning.questBossMinWeaponUpgrade,
         questBossMinArmorUpgrade: tuning.questBossMinArmorUpgrade,
+        maxHasteLevel: tuning.maxHasteLevel,
         safeTargetHealHpRatio: tuning.safeTargetHealHpRatio,
         lowLevelSafeTargetHealHpRatio: tuning.lowLevelSafeTargetHealHpRatio,
         unsafeTargetHealHpRatio: tuning.unsafeTargetHealHpRatio,
