@@ -1383,6 +1383,17 @@ class BotRunner {
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
       const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
       const preEliteFarming = state.level < run.tuning.eliteQuestMinLevel && !questBossRun;
+      const shouldFarmSavedDepth = Boolean(
+        questBossRun &&
+          !this.hasQuestBossReadiness(run, state) &&
+          state.maxDepth &&
+          state.maxDepth > 1 &&
+          state.mapLevel &&
+          state.mapLevel < Math.max(2, state.level - 2)
+      );
+      if (shouldFarmSavedDepth) {
+        return { label: "bail to saved depth for gear farm", command: "/stuck" };
+      }
       const lowLevelHealFloor = preEliteFarming ? 0.7 : 0;
       const safeTargetHealThreshold = preEliteFarming
         ? Math.max(run.tuning.safeTargetHealHpRatio, run.tuning.lowLevelSafeTargetHealHpRatio)
