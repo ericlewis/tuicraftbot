@@ -1424,6 +1424,13 @@ class BotRunner {
           nearestBoss <= run.tuning.earlyBossContactDistance
       );
       if (savedDepthBossBlocked) {
+        if (hpRatio > 0.9 && run.bossLureMoves < 2) {
+          const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+          if (awayStep) {
+            run.bossLureMoves += 1;
+            return { label: "evade saved-depth boss contact", key: awayStep };
+          }
+        }
         run.savedDepthBlockedUntil = Date.now() + 45_000;
         return { label: "bail from blocked saved-depth boss", command: "/stuck" };
       }
@@ -1853,6 +1860,7 @@ class BotRunner {
       action.label === "bail from unsafe dungeon route" ||
       action.label === "bail from under-geared boss contact" ||
       action.label === "bail from multi-mob low-level fight" ||
+      action.label === "evade saved-depth boss contact" ||
       action.label === "bail from nearby boss before farming" ||
       action.label === "bail from early boss contact" ||
       action.label === "bail to heal" ||
