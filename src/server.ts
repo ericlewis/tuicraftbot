@@ -616,6 +616,7 @@ type ParsedGameState = {
   maxDepth?: number;
   className?: string;
   level: number;
+  levelKnown: boolean;
   hp?: { current: number; max: number };
   xp?: { current: number; max: number };
   mana?: { current: number; max: number };
@@ -687,6 +688,8 @@ type BotRunState = {
   mageNeedsManaRest: boolean;
   mageManaRestUntil: number;
   lastKnownMana?: { current: number; max: number };
+  lastKnownLevel?: number;
+  lastKnownClassName?: string;
   lastKnownGold?: number;
   lastKnownWeaponUpgrade?: number;
   lastKnownArmorUpgrade?: number;
@@ -829,6 +832,8 @@ class BotRunner {
       mageNeedsManaRest: false,
       mageManaRestUntil: 0,
       lastKnownMana: undefined,
+      lastKnownLevel: undefined,
+      lastKnownClassName: undefined,
       lastKnownGold: undefined,
       lastKnownWeaponUpgrade: undefined,
       lastKnownArmorUpgrade: undefined,
@@ -1237,6 +1242,7 @@ class BotRunner {
 
   private nextWinAction(run: BotRunState, screen: ScreenSnapshot): BotAction | undefined {
     const state = this.parseGameState(screen);
+    this.hydrateKnownCharacterState(run, state);
     this.rememberCharacterState(run, state);
     this.logWinState(run, state);
     if (!state.weaponMissing) {
@@ -2069,6 +2075,7 @@ class BotRunner {
       maxDepth: maxDepthMatch ? Number(maxDepthMatch[1]) : undefined,
       className,
       level,
+      levelKnown: Boolean(levelMatch),
       hp: hpMatch ? { current: Number(hpMatch[1]), max: Number(hpMatch[2]) } : undefined,
       xp: xpMatch ? { current: Number(xpMatch[1]), max: Number(xpMatch[2]) } : undefined,
       mana: manaMatch ? { current: Number(manaMatch[1]), max: Number(manaMatch[2]) } : undefined,
@@ -2145,6 +2152,12 @@ class BotRunner {
   }
 
   private rememberCharacterState(run: BotRunState, state: ParsedGameState): void {
+    if (state.levelKnown) {
+      run.lastKnownLevel = state.level;
+    }
+    if (state.className !== undefined) {
+      run.lastKnownClassName = state.className;
+    }
     if (state.mana !== undefined) {
       run.lastKnownMana = state.mana;
     }
@@ -2156,6 +2169,15 @@ class BotRunner {
     }
     if (state.armorUpgrade !== undefined) {
       run.lastKnownArmorUpgrade = state.armorUpgrade;
+    }
+  }
+
+  private hydrateKnownCharacterState(run: BotRunState, state: ParsedGameState): void {
+    if (!state.levelKnown && run.lastKnownLevel !== undefined) {
+      state.level = run.lastKnownLevel;
+    }
+    if (state.className === undefined && run.lastKnownClassName !== undefined) {
+      state.className = run.lastKnownClassName;
     }
   }
 
