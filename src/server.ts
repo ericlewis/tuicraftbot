@@ -1455,7 +1455,8 @@ class BotRunner {
           return { label: "take dungeon door", key: deeperStep };
         }
       }
-      if (canFightQuestBoss) {
+      const canContinueQuestBoss = this.canContinueQuestBoss(run, state, hpRatio);
+      if (canFightQuestBoss || canContinueQuestBoss) {
         const engagedQuestBossNow = Boolean(state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level);
         if (
           hpRatio <
@@ -2016,6 +2017,20 @@ class BotRunner {
       this.hasAcceptedEliteQuest(run, state) &&
       hpRatio > run.tuning.questBossMinFightHpRatio &&
       state.level >= Math.max(4, state.mapLevel ?? 4) &&
+      weaponReady &&
+      armorReady
+    );
+  }
+
+  private canContinueQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
+    const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade;
+    const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
+    const weaponReady = !state.weaponMissing && (weaponUpgrade === undefined || weaponUpgrade >= 2);
+    const armorReady = !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= 2);
+    return (
+      this.hasAcceptedEliteQuest(run, state) &&
+      Boolean(state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level) &&
+      hpRatio > run.tuning.questBossEngagedRetreatHpRatio &&
       weaponReady &&
       armorReady
     );
