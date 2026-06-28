@@ -291,7 +291,7 @@ server.registerTool(
   },
   async ({ command }) => {
     const trimmed = command.trim();
-    const commandText = trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
+    const commandText = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
     const base = apiBase();
     await apiPost(base, "/api/input", { key: "escape" });
     await sleep(40);
