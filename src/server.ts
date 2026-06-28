@@ -1879,6 +1879,9 @@ class BotRunner {
     if (!state.inDungeon) {
       return false;
     }
+    if (action.label?.startsWith("bail ")) {
+      return false;
+    }
     if (
       action.wait ||
       action.label === "attack selected regular" ||
