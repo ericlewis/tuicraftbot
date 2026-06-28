@@ -494,6 +494,8 @@ export const WORLD_HTML = String.raw`<!doctype html>
           <a href="/">Terminal</a>
           <label class="check"><input id="follow" type="checkbox">Follow</label>
           <label class="check"><input id="labels" type="checkbox" checked>Labels</label>
+          <label class="check"><input id="agents" type="checkbox" checked>Agents</label>
+          <label class="check"><input id="threats" type="checkbox" checked>Threats</label>
           <label class="check"><input id="manual" type="checkbox">Manual input</label>
           <label class="check">Focus
             <select id="focus">
@@ -615,6 +617,8 @@ export const WORLD_HTML = String.raw`<!doctype html>
     const snapshotStatusEl = document.getElementById("snapshot-status");
     const followEl = document.getElementById("follow");
     const labelsEl = document.getElementById("labels");
+    const agentsEl = document.getElementById("agents");
+    const threatsEl = document.getElementById("threats");
     const manualEl = document.getElementById("manual");
     const focusEl = document.getElementById("focus");
     const zoomEl = document.getElementById("zoom");
@@ -632,6 +636,8 @@ export const WORLD_HTML = String.raw`<!doctype html>
       refreshPending: false,
       eventConnected: false,
       hoverTile: null,
+      playerTween: null,
+      animationFrame: null,
       geometry: { cell: 12, offsetX: 0, offsetY: 0 },
       lastFrame: -1
     };
@@ -654,7 +660,10 @@ export const WORLD_HTML = String.raw`<!doctype html>
       muted: "#9aa8b5",
       path: "rgba(66, 198, 255, 0.48)",
       route: "rgba(231, 180, 94, 0.88)",
-      routeGlow: "rgba(231, 180, 94, 0.18)"
+      routeGlow: "rgba(231, 180, 94, 0.18)",
+      ghost: "rgba(66, 198, 255, 0.28)",
+      threatMob: "rgba(236, 109, 95, 0.16)",
+      threatBoss: "rgba(176, 131, 255, 0.2)"
     };
 
     function displayWorld() {
@@ -1369,7 +1378,21 @@ export const WORLD_HTML = String.raw`<!doctype html>
       const changed = !last || last.x !== player.x || last.y !== player.y || last.mapName !== world.mapName;
       if (!sameMap) state.trail = [];
       if (changed) {
-        state.trail.push({ x: player.x, y: player.y, mapName: world.mapName, ts: Date.now() });
+        const recentAction = ((world.progression || {}).recentAction || (world.bot || {}).lastAction || {}).label || "";
+        if (sameMap && last) {
+          state.playerTween = {
+            from: { x: last.x, y: last.y },
+            to: { x: player.x, y: player.y },
+            mapName: world.mapName,
+            startedAt: performance.now(),
+            duration: 420,
+            action: recentAction
+          };
+          ensureAnimationLoop();
+        } else {
+          state.playerTween = null;
+        }
+        state.trail.push({ x: player.x, y: player.y, mapName: world.mapName, ts: Date.now(), action: recentAction });
         state.trail = state.trail.slice(-48);
       }
     }
@@ -1422,7 +1445,13 @@ export const WORLD_HTML = String.raw`<!doctype html>
           drawTile(ch, x, y, cell, offsetX, offsetY);
         }
       }
+      if (threatsEl.checked) {
+        drawThreatFields(world, cell, offsetX, offsetY);
+      }
       drawTrail(cell, offsetX, offsetY);
+      if (agentsEl.checked) {
+        drawAgentGhosts(world, cell, offsetX, offsetY);
+      }
       state.routePlan = computeRoutePlan(world);
       drawRoute(state.routePlan, cell, offsetX, offsetY);
       for (const entity of world.entities || []) {
@@ -1485,6 +1514,46 @@ export const WORLD_HTML = String.raw`<!doctype html>
       ctx.stroke();
     }
 
+    function drawThreatFields(world, cell, offsetX, offsetY) {
+      ctx.save();
+      for (const entity of world.entities || []) {
+        if (entity.kind !== "mob" && entity.kind !== "boss") continue;
+        const cx = offsetX + (entity.x + 0.5) * cell;
+        const cy = offsetY + (entity.y + 0.5) * cell;
+        const radius = cell * (entity.kind === "boss" ? 2.15 : 1.25);
+        ctx.fillStyle = entity.kind === "boss" ? colors.threatBoss : colors.threatMob;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = entity.kind === "boss" ? "rgba(176, 131, 255, 0.42)" : "rgba(236, 109, 95, 0.34)";
+        ctx.lineWidth = Math.max(1, cell * 0.08);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawAgentGhosts(world, cell, offsetX, offsetY) {
+      if (state.selectedWorld) return;
+      const ghosts = state.snapshots
+        .slice(-12)
+        .map((snapshot) => snapshot.world)
+        .filter((snapshotWorld) => snapshotWorld && snapshotWorld.mapName === world.mapName)
+        .map((snapshotWorld) => findEntity("player", snapshotWorld))
+        .filter(Boolean);
+      ctx.save();
+      ghosts.forEach((point, index) => {
+        const alpha = Math.max(0.08, (index + 1) / Math.max(1, ghosts.length) * 0.32);
+        const cx = offsetX + (point.x + 0.5) * cell;
+        const cy = offsetY + (point.y + 0.5) * cell;
+        ctx.strokeStyle = "rgba(66, 198, 255, " + alpha.toFixed(3) + ")";
+        ctx.lineWidth = Math.max(1, cell * 0.08);
+        ctx.beginPath();
+        ctx.arc(cx, cy, Math.max(3, cell * (0.18 + index / 90)), 0, Math.PI * 2);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
     function drawRoute(plan, cell, offsetX, offsetY) {
       if (!plan || !plan.target) return;
       const targetCx = offsetX + (plan.target.x + 0.5) * cell;
@@ -1503,11 +1572,15 @@ export const WORLD_HTML = String.raw`<!doctype html>
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         ctx.stroke();
+        const dash = Math.max(3, cell * 0.32);
+        const gap = Math.max(3, cell * 0.24);
         ctx.strokeStyle = colors.route;
         ctx.lineWidth = Math.max(2, cell * 0.16);
-        ctx.setLineDash([Math.max(3, cell * 0.32), Math.max(3, cell * 0.24)]);
+        ctx.setLineDash([dash, gap]);
+        ctx.lineDashOffset = -((performance.now() / 140) % (dash + gap));
         ctx.stroke();
         ctx.setLineDash([]);
+        ctx.lineDashOffset = 0;
         for (const point of plan.path.slice(1, -1)) {
           const px = offsetX + (point.x + 0.5) * cell;
           const py = offsetY + (point.y + 0.5) * cell;
@@ -1522,6 +1595,41 @@ export const WORLD_HTML = String.raw`<!doctype html>
       ctx.beginPath();
       ctx.arc(targetCx, targetCy, Math.max(7, cell * 0.56), 0, Math.PI * 2);
       ctx.stroke();
+      if (agentsEl.checked && plan.path && plan.path.length > 1) {
+        drawIntentArrow(plan.path[0], plan.path[1], cell, offsetX, offsetY);
+      }
+      ctx.restore();
+    }
+
+    function drawIntentArrow(from, to, cell, offsetX, offsetY) {
+      const startX = offsetX + (from.x + 0.5) * cell;
+      const startY = offsetY + (from.y + 0.5) * cell;
+      const endX = offsetX + (to.x + 0.5) * cell;
+      const endY = offsetY + (to.y + 0.5) * cell;
+      const angle = Math.atan2(endY - startY, endX - startX);
+      const tipX = startX + Math.cos(angle) * cell * 0.45;
+      const tipY = startY + Math.sin(angle) * cell * 0.45;
+      ctx.save();
+      ctx.strokeStyle = colors.cyan;
+      ctx.fillStyle = colors.cyan;
+      ctx.lineWidth = Math.max(2, cell * 0.13);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(tipX, tipY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(
+        tipX - Math.cos(angle - Math.PI / 6) * cell * 0.22,
+        tipY - Math.sin(angle - Math.PI / 6) * cell * 0.22
+      );
+      ctx.lineTo(
+        tipX - Math.cos(angle + Math.PI / 6) * cell * 0.22,
+        tipY - Math.sin(angle + Math.PI / 6) * cell * 0.22
+      );
+      ctx.closePath();
+      ctx.fill();
       ctx.restore();
     }
 
@@ -1535,8 +1643,9 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
 
     function drawEntity(entity, cell, offsetX, offsetY) {
-      const cx = offsetX + (entity.x + 0.5) * cell;
-      const cy = offsetY + (entity.y + 0.5) * cell;
+      const position = animatedEntityPosition(entity);
+      const cx = offsetX + (position.x + 0.5) * cell;
+      const cy = offsetY + (position.y + 0.5) * cell;
       const radius = Math.max(4, cell * 0.36);
       const color = entityColor(entity.kind);
       if (entity.kind === "player") {
@@ -1564,6 +1673,44 @@ export const WORLD_HTML = String.raw`<!doctype html>
         ctx.textBaseline = "bottom";
         ctx.fillText(entity.label, cx, cy - radius - 3);
       }
+    }
+
+    function animatedEntityPosition(entity) {
+      if (entity.kind !== "player" || state.selectedWorld || !agentsEl.checked || !state.playerTween) {
+        return entity;
+      }
+      const tween = state.playerTween;
+      if (tween.mapName !== (displayWorld() || {}).mapName) return entity;
+      const elapsed = performance.now() - tween.startedAt;
+      const raw = clamp(elapsed / tween.duration, 0, 1);
+      const eased = raw * raw * (3 - 2 * raw);
+      if (raw >= 1) return entity;
+      return {
+        ...entity,
+        x: tween.from.x + (tween.to.x - tween.from.x) * eased,
+        y: tween.from.y + (tween.to.y - tween.from.y) * eased
+      };
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function hasActiveAnimation() {
+      if (!state.playerTween || state.selectedWorld) return false;
+      return performance.now() - state.playerTween.startedAt < state.playerTween.duration;
+    }
+
+    function ensureAnimationLoop() {
+      if (state.animationFrame) return;
+      const tick = () => {
+        state.animationFrame = null;
+        draw();
+        if (hasActiveAnimation()) {
+          state.animationFrame = requestAnimationFrame(tick);
+        }
+      };
+      state.animationFrame = requestAnimationFrame(tick);
     }
 
     function entityColor(kind) {
@@ -1738,7 +1885,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
       if (world) renderRoute(world);
       draw();
     });
-    for (const element of [followEl, labelsEl, zoomEl]) {
+    for (const element of [followEl, labelsEl, agentsEl, threatsEl, zoomEl]) {
       element.addEventListener("input", draw);
     }
     new ResizeObserver(resizeCanvas).observe(wrap);
