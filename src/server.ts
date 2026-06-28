@@ -114,6 +114,11 @@ type BotRunSummary = {
   actionCount: number;
   reconnectCount?: number;
   lastActionAt?: string;
+  lastAction?: {
+    label: string;
+    count: number;
+    ts: string;
+  };
   accountUsername?: string;
   characterName?: string;
   characterClass?: CharacterClass;
@@ -183,12 +188,33 @@ type WorldGrid = {
   rows: string[];
 };
 
+type WorldProgressionGate = {
+  label: string;
+  value: string;
+  status: "ready" | "warn" | "danger";
+};
+
+type WorldProgression = {
+  phase: string;
+  bossReady: boolean;
+  xpRemaining?: number;
+  xpDelta?: number;
+  goldDelta?: number;
+  recentAction?: {
+    label: string;
+    count: number;
+    ts: string;
+  };
+  gates: WorldProgressionGate[];
+};
+
 type WorldSnapshot = {
   ts: string;
   frame: number;
   mapName?: string;
   objective: string;
   stats: WorldCharacterStats;
+  progression: WorldProgression;
   grid: WorldGrid;
   entities: WorldEntity[];
   bot: BotRunSummary;
@@ -689,6 +715,7 @@ type ParsedGameState = {
   mapName?: string;
   mapLevel?: number;
   maxDepth?: number;
+  characterName?: string;
   className?: string;
   level: number;
   levelKnown: boolean;
@@ -754,6 +781,11 @@ type BotRunState = {
   nextBlankScreenLogAt: number;
   lastAttackAt: number;
   lastSpellAt: number;
+  lastAction?: {
+    label: string;
+    count: number;
+    ts: string;
+  };
   questAccepted: boolean;
   questComplete: boolean;
   starterWeaponChecked: boolean;
@@ -830,6 +862,7 @@ class BotRunner {
       actionCount: this.run.actionCount,
       reconnectCount: this.run.reconnectCount,
       lastActionAt: this.run.lastActionAt,
+      lastAction: this.run.lastAction,
       accountUsername: this.run.accountUsername,
       characterName: this.run.characterName,
       characterClass: this.run.characterClass,
@@ -1119,6 +1152,9 @@ class BotRunner {
     if (action && run.mode === "win") {
       action = await this.maybeJudgeWinAction(run, screen, action);
     }
+    if (run.status !== "running") {
+      return;
+    }
     if (!action) {
       run.status = "completed";
       run.stoppedAt = new Date().toISOString();
@@ -1338,6 +1374,18 @@ class BotRunner {
 
   private nextWinAction(run: BotRunState, screen: ScreenSnapshot): BotAction | undefined {
     const state = this.parseGameState(screen);
+    if (
+      run.reuseExistingAccount &&
+      run.characterName &&
+      state.characterName &&
+      state.characterName !== run.characterName
+    ) {
+      this.failRun(run, "loaded unexpected character", {
+        expected: run.characterName,
+        actual: state.characterName
+      });
+      return undefined;
+    }
     this.hydrateKnownCharacterState(run, state);
     this.rememberCharacterState(run, state);
     this.logWinState(run, state);
@@ -1365,6 +1413,16 @@ class BotRunner {
 
     if (state.questInProgress) {
       run.questAccepted = true;
+    }
+    if (
+      !run.questAccepted &&
+      !state.questInProgress &&
+      !state.questComplete &&
+      !state.noActiveQuest &&
+      this.recentLogsSuggestEliteQuestActivity()
+    ) {
+      run.questAccepted = true;
+      this.log("info", "inferred accepted elite quest from recent run history");
     }
     if (state.questComplete) {
       run.questComplete = true;
@@ -1467,15 +1525,19 @@ class BotRunner {
         this.hasAcceptedEliteQuest(run, state) &&
         !this.hasQuestBossReadiness(run, state) &&
         state.maxDepth &&
-        state.maxDepth > 1 &&
-        Date.now() < run.savedDepthBlockedUntil
+        state.maxDepth > 1
       ) {
-        if (this.shouldTopOffNearLevel(run, state)) {
-          const doorStep = this.stepToward(state, ["D"], "onto", { avoidAdjacentKinds: ["S"] });
-          if (doorStep) {
-            return { label: "enter fallback quest portal", key: doorStep };
-          }
+        if (Date.now() < run.savedDepthBlockedUntil) {
+          return { label: "wait for saved-depth route reset", wait: true };
         }
+        const doorAdjacentStep = this.stepToward(state, ["D"], "adjacent", {
+          blockedChars: ["D"],
+          avoidAdjacentKinds: ["S"]
+        });
+        if (doorAdjacentStep) {
+          return { label: "go to saved-depth farm portal", key: doorAdjacentStep };
+        }
+        return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
       }
 
       if (
@@ -1484,7 +1546,10 @@ class BotRunner {
         state.maxDepth &&
         state.maxDepth > 1
       ) {
-        const doorAdjacentStep = this.stepToward(state, ["D"], "adjacent", { avoidAdjacentKinds: ["S"] });
+        const doorAdjacentStep = this.stepToward(state, ["D"], "adjacent", {
+          blockedChars: ["D"],
+          avoidAdjacentKinds: ["S"]
+        });
         if (doorAdjacentStep) {
           return { label: "go to saved-depth portal", key: doorAdjacentStep };
         }
@@ -1512,6 +1577,7 @@ class BotRunner {
       const nearestBoss = this.nearestDistance(state, ["B"]);
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
       const questBossRun = this.hasAcceptedEliteQuest(run, state) && state.level >= 4;
+      const questBossReady = this.hasQuestBossReadiness(run, state);
       if (questBossRun && state.targetIsBoss) {
         run.lastQuestBossEngagedAt = Date.now();
         if (state.targetHp) {
@@ -1521,12 +1587,20 @@ class BotRunner {
       const preEliteFarming = state.level < run.tuning.eliteQuestMinLevel && !questBossRun;
       const savedDepthFarmLevel = this.savedDepthFarmLevel(state);
       const shouldTopOffNearLevel = this.shouldTopOffNearLevel(run, state);
+      const savedDepthFarmingDungeon = Boolean(
+        questBossRun &&
+          !questBossReady &&
+          state.mapName &&
+          !/Fargodeep Cave/i.test(state.mapName) &&
+          state.mapLevel &&
+          state.mapLevel >= 2
+      );
       const selectedSafeRegularTarget = Boolean(
         state.targetLevel && state.targetLevel <= allowedTargetLevel && !state.targetIsEliteOrBoss
       );
       const shouldFarmSavedDepth = Boolean(
         questBossRun &&
-          !this.hasQuestBossReadiness(run, state) &&
+          !questBossReady &&
           !shouldTopOffNearLevel &&
           Date.now() >= run.savedDepthBlockedUntil &&
           savedDepthFarmLevel !== undefined &&
@@ -1536,13 +1610,13 @@ class BotRunner {
       if (shouldFarmSavedDepth) {
         return { label: "bail to saved depth for gear farm", command: "/stuck" };
       }
-      if (questBossRun && !this.hasQuestBossReadiness(run, state) && state.targetIsBoss) {
-        run.savedDepthBlockedUntil = Date.now() + 45_000;
+      if (questBossRun && !questBossReady && state.targetIsBoss && !savedDepthFarmingDungeon) {
+        run.savedDepthBlockedUntil = Date.now() + 15_000;
         return { label: "bail from under-ready boss target", command: "/stuck" };
       }
       const savedDepthBossBlocked = Boolean(
         questBossRun &&
-          !this.hasQuestBossReadiness(run, state) &&
+          !questBossReady &&
           savedDepthFarmLevel !== undefined &&
           state.mapLevel &&
           state.mapLevel >= savedDepthFarmLevel &&
@@ -1568,7 +1642,7 @@ class BotRunner {
             return { label: "evade saved-depth boss contact", key: awayStep };
           }
         }
-        run.savedDepthBlockedUntil = Date.now() + 45_000;
+        run.savedDepthBlockedUntil = Date.now() + 15_000;
         return { label: "bail from blocked saved-depth boss", command: "/stuck" };
       }
       const lowLevelHealFloor = preEliteFarming ? 0.7 : 0;
@@ -1622,15 +1696,7 @@ class BotRunner {
       }
       const knownMana = state.mana?.current ?? run.lastKnownMana?.current;
       const hasSpellMana = knownMana === undefined ? !run.mageNeedsManaRest : knownMana >= 10;
-      const savedDepthFarmingDungeon = Boolean(
-        questBossRun &&
-          !this.hasQuestBossReadiness(run, state) &&
-          state.mapName &&
-          !/Fargodeep Cave/i.test(state.mapName)
-      );
-      const canCastFireball = Boolean(
-        selectedSafeRegularTarget && isMageRun && hasSpellMana && !savedDepthFarmingDungeon
-      );
+      const canCastFireball = Boolean(selectedSafeRegularTarget && isMageRun && hasSpellMana);
       const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
       const bossBreathCueCount = this.bossBreathCueCount(state);
       const bossBreathCharging = bossBreathCueCount > run.lastBossBreathCueCount || this.hasActiveBossBreathWarning(state);
@@ -2405,6 +2471,23 @@ class BotRunner {
     return run.questAccepted || state.questInProgress;
   }
 
+  private recentLogsSuggestEliteQuestActivity(): boolean {
+    const recentLogs = this.logs.toArray(180);
+    let lastActiveIndex = -1;
+    let lastTerminalIndex = -1;
+    for (let index = 0; index < recentLogs.length; index += 1) {
+      const log = recentLogs[index];
+      const text = `${log.message} ${JSON.stringify(log.data ?? "")}`;
+      if (/No active quest|quest reward claimed|claim quest reward|Reward claimed|Quest complete/i.test(text)) {
+        lastTerminalIndex = index;
+      }
+      if (/Elite Slayer|enter saved quest depth|cast fireball at boss|Shadow Overlord|bail from boss/i.test(text)) {
+        lastActiveIndex = index;
+      }
+    }
+    return lastActiveIndex > lastTerminalIndex;
+  }
+
   private hiddenDoorResetStep(state: ParsedGameState): string | undefined {
     if (!state.inTown || !state.player || state.entities.some((entity) => entity.kind === "D")) {
       return undefined;
@@ -2428,11 +2511,15 @@ class BotRunner {
     const mapLevelMatch = mapName?.match(/\(Lvl\s+(\d+)\)/);
     const maxDepthMatch = screen.text.match(/Max Depth:\s*(\d+)/);
     const characterText = screen.lines.slice(0, 12).join("\n");
-    const levelMatch =
-      characterText.match(/\bLvl\s+(\d+)\s+\((Warrior|Rogue|Mage)\)/) ??
-      characterText.match(/\(Lvl\s+(\d+)\)/);
-    const className = levelMatch?.[2];
-    const level = Number(levelMatch?.[1] ?? 1);
+    const fullCharacterMatch = characterText.match(
+      /\b([A-Za-z][A-Za-z0-9_-]+)(?:\s+<[^>\n│]+>)?\s+Lvl\s+(\d+)\s+\((Warrior|Rogue|Mage)\)/
+    );
+    const compactCharacterMatch = characterText.match(
+      /\b([A-Za-z][A-Za-z0-9_-]+)(?:\s+<[^>\n│]+>)?\s+\(Lvl\s+(\d+)\)/
+    );
+    const characterName = fullCharacterMatch?.[1] ?? compactCharacterMatch?.[1];
+    const className = fullCharacterMatch?.[3];
+    const level = Number(fullCharacterMatch?.[2] ?? compactCharacterMatch?.[2] ?? 1);
     const hpMatch = screen.text.match(/(?:Your\s+)?HP:\s*(\d+)\/(\d+)/);
     const manaMatch = screen.text.match(/Mana:\s*(\d+)\/(\d+)/);
     const xpMatch = screen.text.match(/XP:\s*(\d+)\/(\d+)/);
@@ -2491,9 +2578,10 @@ class BotRunner {
       mapName,
       mapLevel: mapLevelMatch ? Number(mapLevelMatch[1]) : undefined,
       maxDepth: maxDepthMatch ? Number(maxDepthMatch[1]) : undefined,
+      characterName,
       className,
       level,
-      levelKnown: Boolean(levelMatch),
+      levelKnown: Boolean(fullCharacterMatch ?? compactCharacterMatch),
       hp: hpMatch ? { current: Number(hpMatch[1]), max: Number(hpMatch[2]) } : undefined,
       xp: xpMatch ? { current: Number(xpMatch[1]), max: Number(xpMatch[2]) } : undefined,
       mana: manaMatch ? { current: Number(manaMatch[1]), max: Number(manaMatch[2]) } : undefined,
@@ -2557,6 +2645,7 @@ class BotRunner {
     run.lastStateSignature = signature;
     this.log("info", "state changed", {
       map: state.mapName,
+      characterName: state.characterName,
       className: state.className,
       level: state.level,
       hp,
@@ -3116,12 +3205,19 @@ class BotRunner {
       return;
     }
     run.actionCount += 1;
-    run.lastActionAt = new Date().toISOString();
+    const actionAt = new Date().toISOString();
+    run.lastActionAt = actionAt;
+    run.lastAction = {
+      label: action.label,
+      count: run.actionCount,
+      ts: actionAt
+    };
     this.bridge.publish("bot_action", {
       id: run.id,
       mode: run.mode,
       action: action.label,
-      count: run.actionCount
+      count: run.actionCount,
+      ts: actionAt
     });
     if (run.mode !== "stress" || run.actionCount % 10 === 0 || action.text) {
       this.log("info", action.label, { count: run.actionCount });
@@ -3513,12 +3609,14 @@ function buildWorldSnapshot(screen: ScreenSnapshot, botSummary: BotRunSummary, l
   const mapName = text.match(/\[Map:\s*([^\]]+)\]/)?.[1]?.trim();
   const { grid, entities } = parseWorldGrid(screen.lines);
   const stats = hydrateWorldStatsFromBotSummary(hydrateWorldStatsFromLogs(parseWorldCharacterStats(text), logs), botSummary);
+  const progression = buildWorldProgression(mapName, stats, entities, botSummary, logs);
   return {
     ts: screen.ts,
     frame: screen.frame,
     mapName,
-    objective: inferWorldObjective(mapName, stats, entities, botSummary),
+    objective: inferWorldObjective(mapName, stats, entities, botSummary, logs),
     stats,
+    progression,
     grid,
     entities,
     bot: botSummary,
@@ -3644,13 +3742,17 @@ function worldEntityForMarker(marker: string, x: number, y: number): WorldEntity
 }
 
 function parseWorldCharacterStats(text: string): WorldCharacterStats {
-  const character = text.match(/([A-Za-z][A-Za-z0-9_-]+)\s+Lvl\s+(\d+)\s+\(([^)]+)\)/);
+  const statHeader = text.split("\n").slice(0, 14).join("\n");
+  const fullCharacter = statHeader.match(
+    /([A-Za-z][A-Za-z0-9_-]+)(?:\s+<[^>\n│]+>)?\s+Lvl\s+(\d+)\s+\(([^)]+)\)/
+  );
+  const compactCharacter = statHeader.match(/([A-Za-z][A-Za-z0-9_-]+)(?:\s+<[^>\n│]+>)?\s+\(Lvl\s+(\d+)\)/);
   const targetPanel = text.match(/--- Target ---([\s\S]*?)(?:--- Legend ---|Nearby:|┌─ Combat Log|$)/)?.[1] ?? "";
   const targetName = targetPanel.match(/([A-Za-z][A-Za-z0-9 ':-]*?\s+\(Lvl\s+\d+\)[^\n│]*)/)?.[1]?.trim();
   return {
-    name: character?.[1],
-    level: character?.[2] ? Number(character[2]) : undefined,
-    className: character?.[3],
+    name: fullCharacter?.[1] ?? compactCharacter?.[1],
+    level: fullCharacter?.[2] ? Number(fullCharacter[2]) : compactCharacter?.[2] ? Number(compactCharacter[2]) : undefined,
+    className: fullCharacter?.[3],
     hp: parseWorldMeter(text.match(/(?:Your\s+)?HP:\s*([0-9]+)\/([0-9]+)/)?.slice(1, 3)),
     mana: parseWorldMeter(text.match(/\bMana:\s*([0-9]+)\/([0-9]+)/)?.slice(1, 3)),
     xp: parseWorldMeter(text.match(/\bXP:\s*([0-9]+)\/([0-9]+)/)?.slice(1, 3)),
@@ -3750,9 +3852,11 @@ function inferWorldObjective(
   mapName: string | undefined,
   stats: WorldCharacterStats,
   entities: WorldEntity[],
-  botSummary: BotRunSummary
+  botSummary: BotRunSummary,
+  logs: BotLog[]
 ): string {
   const quest = stats.quest ?? "";
+  const eliteQuestAccepted = /Elite Slayer/i.test(quest) || worldQuestLooksAccepted(stats, logs);
   const tuning = asPlainRecord(botSummary.tuning);
   const bossGate = numberValue(tuning.questBossMinLevel) ?? 4;
   const weaponGate = numberValue(tuning.questBossMinWeaponUpgrade) ?? 0;
@@ -3771,22 +3875,192 @@ function inferWorldObjective(
   if (/Ready|Complete/i.test(quest)) {
     return "Turn in Elite Slayer reward";
   }
-  if (/Elite Slayer/i.test(quest) && stats.level !== undefined && stats.level < bossGate) {
+  if (eliteQuestAccepted && stats.level !== undefined && stats.level < bossGate) {
     return `Farm to level ${bossGate} before Shadow Overlord`;
   }
-  if (/Elite Slayer/i.test(quest) && !gearReady) {
+  if (eliteQuestAccepted && !gearReady) {
     return `Farm gear toward +${weaponGate} weapon and +${armorGate} armor`;
   }
-  if (/Elite Slayer/i.test(quest) && bossVisible) {
+  if (eliteQuestAccepted && bossVisible) {
     return "Shadow Overlord is visible; judge boss engagement carefully";
   }
-  if (/Elite Slayer/i.test(quest) && inTown) {
+  if (eliteQuestAccepted && inTown) {
     return "Return to dungeon for Elite Slayer progression";
   }
   if (stats.target) {
     return `Resolve target: ${stats.target}`;
   }
   return "Observe live progression";
+}
+
+function buildWorldProgression(
+  mapName: string | undefined,
+  stats: WorldCharacterStats,
+  entities: WorldEntity[],
+  botSummary: BotRunSummary,
+  logs: BotLog[]
+): WorldProgression {
+  const tuning = asPlainRecord(botSummary.tuning);
+  const levelGate = numberValue(tuning.questBossMinLevel) ?? 4;
+  const weaponGate = numberValue(tuning.questBossMinWeaponUpgrade) ?? 0;
+  const armorGate = numberValue(tuning.questBossMinArmorUpgrade) ?? 0;
+  const minFightHp = numberValue(tuning.questBossMinFightHpRatio) ?? 0.3;
+  const level = stats.level ?? 0;
+  const weaponUpgrade = parseUpgrade(stats.weapon);
+  const armorUpgrade = parseUpgrade(stats.armor);
+  const hpRatio = stats.hp?.ratio ?? 0;
+  const questReady = worldQuestLooksAccepted(stats, logs);
+  const target = stats.target ?? "";
+  const targetBoss = /Boss|Shadow Overlord/i.test(target);
+  const bossVisible = targetBoss || entities.some((entity) => entity.kind === "boss");
+  const gates: WorldProgressionGate[] = [
+    {
+      label: "Level",
+      value: level ? `L${level} / L${levelGate}` : "unknown",
+      status: level >= levelGate ? "ready" : "danger"
+    },
+    {
+      label: "Weapon",
+      value: stats.weapon ? `${stats.weapon} / +${weaponGate}` : "unknown",
+      status: weaponUpgrade === undefined || weaponUpgrade >= weaponGate ? "ready" : "warn"
+    },
+    {
+      label: "Armor",
+      value: stats.armor ? `${stats.armor} / +${armorGate}` : "unknown",
+      status: armorUpgrade === undefined || armorUpgrade >= armorGate ? "ready" : "warn"
+    },
+    {
+      label: "Quest",
+      value: stats.quest || (questReady ? "Elite Slayer" : "unknown"),
+      status: questReady ? "ready" : "warn"
+    },
+    {
+      label: "Fight HP",
+      value: stats.hp ? `${stats.hp.current}/${stats.hp.max}` : "unknown",
+      status: hpRatio >= 0.9 ? "ready" : hpRatio >= minFightHp ? "warn" : "danger"
+    },
+    {
+      label: "Boss Contact",
+      value: targetBoss ? target : bossVisible ? "visible" : "none",
+      status: targetBoss ? "warn" : "ready"
+    }
+  ];
+  const bossReady = gates
+    .filter((gate) => gate.label !== "Boss Contact")
+    .every((gate) => gate.status === "ready");
+  const samples = worldProgressSamples(logs);
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const xpDelta =
+    first?.xp && last?.xp && first.level === last.level ? last.xp.current - first.xp.current : undefined;
+  const goldDelta = first?.gold !== undefined && last?.gold !== undefined ? last.gold - first.gold : undefined;
+  return {
+    phase: inferWorldPhase(mapName, stats, botSummary, gates, bossReady, bossVisible),
+    bossReady,
+    xpRemaining: stats.xp ? Math.max(0, stats.xp.max - stats.xp.current) : undefined,
+    xpDelta,
+    goldDelta,
+    recentAction: botSummary.lastAction ?? recentActionFromLogs(logs),
+    gates
+  };
+}
+
+function worldQuestLooksAccepted(stats: WorldCharacterStats, logs: BotLog[]): boolean {
+  if (/Elite Slayer|Active|Ready|In Progress/i.test(stats.quest ?? "")) {
+    return true;
+  }
+  let lastActiveIndex = -1;
+  let lastTerminalIndex = -1;
+  for (let index = 0; index < logs.length; index += 1) {
+    const log = logs[index];
+    const text = `${log.message} ${JSON.stringify(log.data ?? "")}`;
+    if (/No active quest|quest reward claimed|claim quest reward|Reward claimed|Quest complete/i.test(text)) {
+      lastTerminalIndex = index;
+    }
+    if (/accept elite quest|Elite Slayer|enter saved quest depth|Shadow Overlord|bail from boss/i.test(text)) {
+      lastActiveIndex = index;
+    }
+  }
+  return lastActiveIndex > lastTerminalIndex;
+}
+
+function inferWorldPhase(
+  mapName: string | undefined,
+  stats: WorldCharacterStats,
+  botSummary: BotRunSummary,
+  gates: WorldProgressionGate[],
+  bossReady: boolean,
+  bossVisible: boolean
+): string {
+  const recentAction = botSummary.lastAction?.label ?? "";
+  if (botSummary.status !== "running") {
+    return "Idle";
+  }
+  if (/claim quest reward|turn in/i.test(recentAction) || /Ready|Complete/i.test(stats.quest ?? "")) {
+    return "Turn in quest";
+  }
+  if (/buy|merchant|sell/i.test(recentAction)) {
+    return "Town economy";
+  }
+  if (/heal|restore|rest/i.test(recentAction)) {
+    return "Recovering";
+  }
+  if (/Boss|Shadow Overlord/i.test(stats.target ?? "")) {
+    return bossReady ? "Boss fight" : "Boss avoidance";
+  }
+  if (!bossReady) {
+    const blocked = gates.find((gate) => gate.status !== "ready" && gate.label !== "Boss Contact");
+    return blocked?.label === "Level" ? "Farming level" : "Farming readiness";
+  }
+  if (mapName && /Town|Abbey/i.test(mapName)) {
+    return "Route to dungeon";
+  }
+  if (bossVisible) {
+    return "Boss approach";
+  }
+  if (stats.target) {
+    return "Combat";
+  }
+  return "Scouting";
+}
+
+function worldProgressSamples(logs: BotLog[]): { ts: string; level?: number; xp?: WorldMeter; gold?: number }[] {
+  const samples: { ts: string; level?: number; xp?: WorldMeter; gold?: number }[] = [];
+  for (const log of logs) {
+    const data = asPlainRecord(log.data);
+    const xp = parseWorldMeterText(data.xp);
+    const gold = numberValue(data.gold);
+    if (!xp && gold === undefined) {
+      continue;
+    }
+    samples.push({
+      ts: log.ts,
+      level: numberValue(data.level),
+      xp,
+      gold
+    });
+  }
+  return samples;
+}
+
+function recentActionFromLogs(logs: BotLog[]): WorldProgression["recentAction"] {
+  for (let index = logs.length - 1; index >= 0; index -= 1) {
+    const log = logs[index];
+    if (log.message === "state changed" || log.message === "bot started") {
+      continue;
+    }
+    const data = asPlainRecord(log.data);
+    const count = numberValue(data.count);
+    if (count === undefined) {
+      continue;
+    }
+    return {
+      label: log.message,
+      count,
+      ts: log.ts
+    };
+  }
+  return undefined;
 }
 
 function parseUpgrade(value: string | undefined): number | undefined {

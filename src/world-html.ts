@@ -360,6 +360,49 @@ export const WORLD_HTML = String.raw`<!doctype html>
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .trend-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .trend-card {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      padding: 7px;
+      border: 1px solid rgba(45, 57, 69, 0.72);
+      border-radius: 6px;
+      background: rgba(12, 17, 22, 0.72);
+    }
+    .trend-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .trend-top span {
+      flex: 0 0 auto;
+    }
+    .trend-top strong {
+      color: var(--text);
+      font: 12px/1.25 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      text-transform: none;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+    .sparkline {
+      width: 100%;
+      height: 34px;
+      display: block;
+    }
     .timeline-tools {
       display: flex;
       gap: 8px;
@@ -436,7 +479,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
         </div>
         <div class="tools">
           <a href="/">Terminal</a>
-          <label class="check"><input id="follow" type="checkbox" checked>Follow</label>
+          <label class="check"><input id="follow" type="checkbox">Follow</label>
           <label class="check"><input id="labels" type="checkbox" checked>Labels</label>
           <label class="check"><input id="manual" type="checkbox">Manual input</label>
           <label class="check">Zoom <input id="zoom" type="range" min="1" max="3" value="1" step="0.25"></label>
@@ -457,6 +500,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
         <h2>Progression</h2>
         <div id="readiness" class="readiness"></div>
         <div id="deltas" class="delta-grid"></div>
+        <div id="trends" class="trend-grid"></div>
       </section>
       <section>
         <h2>Character</h2>
@@ -513,6 +557,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
     const stateStripEl = document.getElementById("state-strip");
     const readinessEl = document.getElementById("readiness");
     const deltasEl = document.getElementById("deltas");
+    const trendsEl = document.getElementById("trends");
     const metersEl = document.getElementById("meters");
     const characterEl = document.getElementById("character");
     const runEl = document.getElementById("run");
@@ -529,6 +574,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
 
     const state = {
       world: null,
+      selectedWorld: null,
       trail: [],
       snapshots: [],
       selectedTimelineId: "live",
@@ -555,6 +601,10 @@ export const WORLD_HTML = String.raw`<!doctype html>
       muted: "#9aa8b5",
       path: "rgba(66, 198, 255, 0.48)"
     };
+
+    function displayWorld() {
+      return state.selectedWorld || state.world;
+    }
 
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({
@@ -658,28 +708,63 @@ export const WORLD_HTML = String.raw`<!doctype html>
     function renderProgression(world) {
       const stats = world.stats || {};
       const bot = world.bot || {};
-      const steps = readinessSteps(world);
+      const progression = world.progression || {};
+      const steps = Array.isArray(progression.gates) && progression.gates.length ? progression.gates : readinessSteps(world);
       const readyCount = steps.filter((step) => step.status === "ready").length;
+      const recentAction = progression.recentAction || bot.lastAction;
+      const phase = progression.phase || phaseLabel(world);
       stateStripEl.innerHTML = [
         capsule(stats.name || bot.characterName || "character", "L" + (stats.level || "?"), "ready"),
+        capsule("Phase", phase, progression.bossReady ? "ready" : "warn"),
+        capsule("Intent", recentAction ? recentAction.label : "observing", ""),
         capsule("HP", formatMeterValue(stats.hp) || "?", stats.hp && stats.hp.ratio < 0.35 ? "danger" : "ready"),
         capsule("XP", formatMeterValue(stats.xp) || "?", ""),
         capsule("Gold", stats.gold !== undefined ? stats.gold + "g" : "?", ""),
         capsule("Weapon", stats.weapon || "?", parseUpgrade(stats.weapon) >= tuningNumber(world, "questBossMinWeaponUpgrade", 0) ? "ready" : "warn"),
         capsule("Armor", stats.armor || "?", parseUpgrade(stats.armor) >= tuningNumber(world, "questBossMinArmorUpgrade", 0) ? "ready" : "warn"),
-        capsule("Boss Gate", readyCount + "/" + steps.length, readyCount === steps.length ? "ready" : "warn")
+        capsule("Boss Gate", readyCount + "/" + steps.length, progression.bossReady || readyCount === steps.length ? "ready" : "warn")
       ].join("");
       readinessEl.innerHTML = steps.map((step) => {
         return "<div class=\"stage-step " + escapeHtml(step.status) + "\"><i class=\"stage-dot\"></i><span class=\"stage-label\">" +
           escapeHtml(step.label) + "</span><span class=\"stage-value\">" + escapeHtml(step.value) + "</span></div>";
       }).join("");
       deltasEl.innerHTML = [
-        delta("Class", stats.className || bot.characterClass || ""),
+        delta("Phase", phase),
+        delta("Intent", recentAction ? "#" + recentAction.count + " " + recentAction.label : ""),
+        delta("XP Left", progression.xpRemaining !== undefined ? progression.xpRemaining : xpRemaining(stats.xp)),
+        delta("Window", trendDeltaLabel(progression)),
         delta("Map", world.mapName || ""),
         delta("Mana", formatMeterValue(stats.mana)),
         delta("Target", stats.target || "none")
       ].join("");
+      renderTrends(world);
       renderTimeline(world);
+    }
+
+    function phaseLabel(world) {
+      const objective = world.objective || "";
+      if (/Farm to level/i.test(objective)) return "Farming level";
+      if (/gear/i.test(objective)) return "Farming gear";
+      if (/reward/i.test(objective)) return "Turn in quest";
+      if (/boss/i.test(objective)) return "Boss route";
+      if (world.stats && world.stats.target) return "Combat";
+      return "Observing";
+    }
+
+    function xpRemaining(xp) {
+      if (!xp || !Number.isFinite(xp.current) || !Number.isFinite(xp.max)) return "";
+      return Math.max(0, xp.max - xp.current);
+    }
+
+    function trendDeltaLabel(progression) {
+      const parts = [];
+      if (Number.isFinite(progression.xpDelta)) parts.push(formatSigned(progression.xpDelta) + " XP");
+      if (Number.isFinite(progression.goldDelta)) parts.push(formatSigned(progression.goldDelta) + "g");
+      return parts.join(" / ") || "-";
+    }
+
+    function formatSigned(value) {
+      return (value >= 0 ? "+" : "") + value;
     }
 
     function capsule(label, value, status) {
@@ -689,6 +774,46 @@ export const WORLD_HTML = String.raw`<!doctype html>
 
     function delta(label, value) {
       return "<div class=\"delta\"><span>" + escapeHtml(label) + "</span><strong>" + escapeHtml(value || "-") + "</strong></div>";
+    }
+
+    function renderTrends(world) {
+      const snapshots = state.snapshots.slice(-40);
+      const xpPoints = snapshots
+        .map((snapshot) => snapshot.world && snapshot.world.stats ? snapshot.world.stats.xp : undefined)
+        .filter((xp) => xp && Number.isFinite(xp.current))
+        .map((xp) => xp.current);
+      const goldPoints = snapshots
+        .map((snapshot) => snapshot.world && snapshot.world.stats ? snapshot.world.stats.gold : undefined)
+        .filter((gold) => Number.isFinite(gold));
+      const stats = world.stats || {};
+      const xpLabel = stats.xp ? formatMeterValue(stats.xp) + " · " + xpRemaining(stats.xp) + " left" : "unknown";
+      const goldLabel = stats.gold !== undefined ? stats.gold + "g" : "unknown";
+      trendsEl.innerHTML = [
+        trendCard("XP", xpLabel, xpPoints, "#b083ff"),
+        trendCard("Gold", goldLabel, goldPoints, "#e7b45e")
+      ].join("");
+    }
+
+    function trendCard(label, value, points, color) {
+      return "<div class=\"trend-card\"><div class=\"trend-top\"><span>" + escapeHtml(label) + "</span><strong>" +
+        escapeHtml(value) + "</strong></div>" + sparkline(points, color) + "</div>";
+    }
+
+    function sparkline(points, color) {
+      const clean = points.filter((point) => Number.isFinite(point));
+      if (clean.length < 2) {
+        return "<svg class=\"sparkline\" viewBox=\"0 0 120 34\" role=\"img\" aria-label=\"Not enough history\"><line x1=\"0\" y1=\"28\" x2=\"120\" y2=\"28\" stroke=\"rgba(154,168,181,0.3)\" /></svg>";
+      }
+      const min = Math.min(...clean);
+      const max = Math.max(...clean);
+      const range = Math.max(1, max - min);
+      const path = clean.map((value, index) => {
+        const x = clean.length === 1 ? 0 : (index / (clean.length - 1)) * 118 + 1;
+        const y = 29 - ((value - min) / range) * 24;
+        return (index === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1);
+      }).join(" ");
+      return "<svg class=\"sparkline\" viewBox=\"0 0 120 34\" role=\"img\" aria-label=\"trend\"><path d=\"" +
+        escapeHtml(path) + "\" fill=\"none\" stroke=\"" + escapeHtml(color) + "\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><line x1=\"0\" y1=\"29\" x2=\"120\" y2=\"29\" stroke=\"rgba(154,168,181,0.22)\" /></svg>";
     }
 
     function snapshotSignature(world) {
@@ -743,7 +868,8 @@ export const WORLD_HTML = String.raw`<!doctype html>
         title: snapshot.title,
         note: snapshot.note,
         detail: snapshot.note,
-        kind: "snapshot"
+        kind: "snapshot",
+        world: snapshot.world
       }));
       const byKey = new Map();
       for (const entry of logEntries.concat(snapshotEntries)) {
@@ -807,10 +933,13 @@ export const WORLD_HTML = String.raw`<!doctype html>
       const stats = world.stats || {};
       const bot = world.bot || {};
       const grid = world.grid || {};
+      const progression = world.progression || {};
+      const recentAction = progression.recentAction || bot.lastAction;
       titleEl.textContent = world.mapName || "TUICraft World";
       frameEl.textContent = world.frame !== undefined ? "frame " + world.frame : "";
       objectiveEl.textContent = world.objective || "Observing live run";
-      liveStatusEl.textContent = (state.eventConnected ? "event live · " : "") + (bot.status ? "bot " + bot.status : "session live");
+      liveStatusEl.textContent = (state.selectedWorld ? "snapshot · " : state.eventConnected ? "event live · " : "") +
+        (bot.status ? "bot " + bot.status : "session live");
       liveDotEl.classList.toggle("live", bot.status === "running");
       renderProgression(world);
       metersEl.innerHTML = [
@@ -829,6 +958,8 @@ export const WORLD_HTML = String.raw`<!doctype html>
         ["target", stats.target || ""]
       ]);
       runEl.innerHTML = pairRows([
+        ["phase", progression.phase || phaseLabel(world)],
+        ["intent", recentAction ? "#" + recentAction.count + " " + recentAction.label : ""],
         ["mode", bot.mode || ""],
         ["actions", bot.actionCount || 0],
         ["judge", bot.judge ? bot.judge.calls + "/" + bot.judge.maxCalls : ""],
@@ -854,12 +985,12 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
 
     function countKind(kind) {
-      const world = state.world || {};
+      const world = displayWorld() || {};
       return (world.entities || []).filter((entity) => entity.kind === kind).length;
     }
 
-    function findEntity(kind) {
-      const world = state.world || {};
+    function findEntity(kind, world = displayWorld()) {
+      world = world || {};
       return (world.entities || []).find((entity) => entity.kind === kind);
     }
 
@@ -890,7 +1021,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
 
     function draw() {
-      const world = state.world;
+      const world = displayWorld();
       const rect = wrap.getBoundingClientRect();
       const width = Math.max(320, rect.width);
       const height = Math.max(240, rect.height);
@@ -908,7 +1039,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
       const zoom = Number(zoomEl.value) || 1;
       const baseCell = Math.max(6, Math.floor(Math.min((width - 36) / Math.max(1, cols), (height - 36) / Math.max(1, rowCount))));
       const cell = Math.max(6, baseCell * zoom);
-      const player = findEntity("player");
+      const player = findEntity("player", world);
       let offsetX = Math.floor((width - cols * cell) / 2);
       let offsetY = Math.floor((height - rowCount * cell) / 2);
       if (followEl.checked && player) {
@@ -968,6 +1099,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
 
     function drawTrail(cell, offsetX, offsetY) {
+      if (state.selectedWorld) return;
       if (state.trail.length < 2) return;
       ctx.beginPath();
       state.trail.forEach((point, index) => {
@@ -1035,7 +1167,7 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
 
     function tileInfo(tile) {
-      const world = state.world;
+      const world = displayWorld();
       if (!world || !world.grid) return "Waiting for world state";
       if (tile.x < 0 || tile.y < 0 || tile.x >= world.grid.width || tile.y >= world.grid.height) {
         return "Outside map";
@@ -1062,6 +1194,10 @@ export const WORLD_HTML = String.raw`<!doctype html>
     }
 
     async function clickStep(tile) {
+      if (state.selectedWorld) {
+        hoverEl.textContent = "Return to Live before sending manual input";
+        return;
+      }
       const player = findEntity("player");
       if (!player) return;
       const dx = tile.x - player.x;
@@ -1081,7 +1217,11 @@ export const WORLD_HTML = String.raw`<!doctype html>
         state.world = world;
         recordSnapshot(world);
         updateTrail(world);
-        renderHud(world);
+        if (state.selectedWorld) {
+          renderTimeline(world);
+        } else {
+          renderHud(world);
+        }
         draw();
       } catch (error) {
         state.refreshPending = false;
@@ -1138,11 +1278,21 @@ export const WORLD_HTML = String.raw`<!doctype html>
       const entry = entries.find((candidate) => candidate.id === button.dataset.timelineId);
       state.selectedTimelineId = button.dataset.timelineId || "live";
       timelineDetailEl.textContent = entry ? entry.detail || entry.note || entry.title : "";
-      if (state.world) renderTimeline(state.world);
+      state.selectedWorld = entry && entry.kind === "snapshot" && entry.world ? entry.world : null;
+      if (state.selectedWorld) {
+        renderHud(state.selectedWorld);
+      } else if (state.world) {
+        renderHud(state.world);
+      }
+      draw();
     });
     timelineLiveEl.addEventListener("click", () => {
       state.selectedTimelineId = "live";
-      if (state.world) renderTimeline(state.world);
+      state.selectedWorld = null;
+      if (state.world) {
+        renderHud(state.world);
+        draw();
+      }
     });
     clearTrailEl.addEventListener("click", () => {
       state.trail = [];
