@@ -1642,7 +1642,7 @@ class BotRunner {
         }
         if (state.targetIsBoss && isMageRun && hasSpellMana) {
           if (!spellReady) {
-            const kiteStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+            const kiteStep = this.bossKiteStep(state);
             if (kiteStep) {
               return { label: "kite boss during spell cooldown", key: kiteStep };
             }
@@ -1652,7 +1652,7 @@ class BotRunner {
         }
         if (state.targetIsBoss && this.hasAdjacent(state, ["B"])) {
           if (isMageRun) {
-            const kiteStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+            const kiteStep = this.bossKiteStep(state);
             if (kiteStep) {
               return { label: "kite adjacent selected boss", key: kiteStep };
             }
@@ -1662,7 +1662,7 @@ class BotRunner {
         }
         if (this.hasAdjacent(state, ["B"])) {
           if (isMageRun) {
-            const kiteStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+            const kiteStep = this.bossKiteStep(state);
             if (kiteStep) {
               return { label: "kite adjacent untargeted boss", key: kiteStep };
             }
@@ -2824,6 +2824,41 @@ class BotRunner {
     }
 
     return best?.key;
+  }
+
+  private bossKiteStep(state: ParsedGameState): string | undefined {
+    return (
+      this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] }) ??
+      this.stepAwayFrom(state, ["M"], { blockedChars: ["D"] }) ??
+      this.firstWalkableStep(state, { blockedChars: ["D"], avoidAdjacentKinds: ["B"], avoidRadius: 2 })
+    );
+  }
+
+  private firstWalkableStep(state: ParsedGameState, options: PathfindOptions = {}): string | undefined {
+    if (!state.player) {
+      return undefined;
+    }
+    const directions: Array<[string, number, number]> = [
+      ["d", 1, 0],
+      ["s", 0, 1],
+      ["w", 0, -1],
+      ["a", -1, 0]
+    ];
+    for (const [key, dx, dy] of directions) {
+      const next = { x: state.player.x + dx, y: state.player.y + dy };
+      const char = state.grid[next.y]?.[next.x];
+      if (char && options.blockedChars?.includes(char)) {
+        continue;
+      }
+      if (!this.isWalkable(char, false)) {
+        continue;
+      }
+      if (this.isAdjacentToAvoidedKind(state, next, options)) {
+        continue;
+      }
+      return key;
+    }
+    return undefined;
   }
 
   private safeDungeonProbeStep(state: ParsedGameState): string | undefined {
