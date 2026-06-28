@@ -79,6 +79,9 @@ type BotTuningConfig = {
   judgeMobHpRatio: number;
   judgeRetreatCandidateHpRatio: number;
   eliteQuestMinLevel: number;
+  questBossMinLevel: number;
+  questBossMinWeaponUpgrade: number;
+  questBossMinArmorUpgrade: number;
   earlyBossAvoidPlayerLevel: number;
   earlyBossAvoidDistance: number;
   earlyBossContactDistance: number;
@@ -199,6 +202,9 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   judgeMobHpRatio: 0.45,
   judgeRetreatCandidateHpRatio: 0.7,
   eliteQuestMinLevel: 4,
+  questBossMinLevel: 4,
+  questBossMinWeaponUpgrade: 2,
+  questBossMinArmorUpgrade: 2,
   earlyBossAvoidPlayerLevel: 3,
   earlyBossAvoidDistance: 3,
   earlyBossContactDistance: 1,
@@ -2011,12 +2017,15 @@ class BotRunner {
   private canFightQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
     const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade;
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
-    const weaponReady = !state.weaponMissing && (weaponUpgrade === undefined || weaponUpgrade >= 2);
-    const armorReady = !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= 2);
+    const weaponReady =
+      !state.weaponMissing &&
+      (weaponUpgrade === undefined || weaponUpgrade >= run.tuning.questBossMinWeaponUpgrade);
+    const armorReady =
+      !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= run.tuning.questBossMinArmorUpgrade);
     return (
       this.hasAcceptedEliteQuest(run, state) &&
       hpRatio > run.tuning.questBossMinFightHpRatio &&
-      state.level >= Math.max(4, state.mapLevel ?? 4) &&
+      state.level >= Math.max(run.tuning.questBossMinLevel, state.mapLevel ?? run.tuning.questBossMinLevel) &&
       weaponReady &&
       armorReady
     );
@@ -2025,11 +2034,15 @@ class BotRunner {
   private canContinueQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
     const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade;
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
-    const weaponReady = !state.weaponMissing && (weaponUpgrade === undefined || weaponUpgrade >= 2);
-    const armorReady = !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= 2);
+    const weaponReady =
+      !state.weaponMissing &&
+      (weaponUpgrade === undefined || weaponUpgrade >= run.tuning.questBossMinWeaponUpgrade);
+    const armorReady =
+      !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= run.tuning.questBossMinArmorUpgrade);
     return (
       this.hasAcceptedEliteQuest(run, state) &&
       Boolean(state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level) &&
+      state.level >= run.tuning.questBossMinLevel &&
       hpRatio > run.tuning.questBossEngagedRetreatHpRatio &&
       weaponReady &&
       armorReady
@@ -3121,6 +3134,9 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "judgeMobHpRatio");
   setTuningNumber(tuning, source, "judgeRetreatCandidateHpRatio");
   setTuningNumber(tuning, source, "eliteQuestMinLevel");
+  setTuningNumber(tuning, source, "questBossMinLevel");
+  setTuningNumber(tuning, source, "questBossMinWeaponUpgrade");
+  setTuningNumber(tuning, source, "questBossMinArmorUpgrade");
   setTuningNumber(tuning, source, "earlyBossAvoidPlayerLevel");
   setTuningNumber(tuning, source, "earlyBossAvoidDistance");
   setTuningNumber(tuning, source, "earlyBossContactDistance");
@@ -3199,6 +3215,21 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       1
     ),
     eliteQuestMinLevel: tuneInteger(overrides, "eliteQuestMinLevel", "TUICRAFT_ELITE_QUEST_MIN_LEVEL", 1, 100),
+    questBossMinLevel: tuneInteger(overrides, "questBossMinLevel", "TUICRAFT_QUEST_BOSS_MIN_LEVEL", 1, 100),
+    questBossMinWeaponUpgrade: tuneInteger(
+      overrides,
+      "questBossMinWeaponUpgrade",
+      "TUICRAFT_QUEST_BOSS_MIN_WEAPON_UPGRADE",
+      0,
+      20
+    ),
+    questBossMinArmorUpgrade: tuneInteger(
+      overrides,
+      "questBossMinArmorUpgrade",
+      "TUICRAFT_QUEST_BOSS_MIN_ARMOR_UPGRADE",
+      0,
+      20
+    ),
     earlyBossAvoidPlayerLevel: tuneInteger(
       overrides,
       "earlyBossAvoidPlayerLevel",
@@ -3312,7 +3343,12 @@ function buildJudgePayload(
   const bossThreatening =
     state.targetIsEliteOrBoss ||
     Boolean(nearestBossDistance !== undefined && nearestBossDistance <= tuning.earlyBossContactDistance);
-  const gearReady = !state.weaponMissing && !state.armorMissing;
+  const weaponReady =
+    !state.weaponMissing &&
+    (state.weaponUpgrade === undefined || state.weaponUpgrade >= tuning.questBossMinWeaponUpgrade);
+  const armorReady =
+    !state.armorMissing && (state.armorUpgrade === undefined || state.armorUpgrade >= tuning.questBossMinArmorUpgrade);
+  const gearReady = weaponReady && armorReady;
   const lowLevelSafeTargetHealHpRatio =
     state.level < tuning.eliteQuestMinLevel
       ? Math.max(tuning.safeTargetHealHpRatio, tuning.lowLevelSafeTargetHealHpRatio)
@@ -3328,7 +3364,7 @@ function buildJudgePayload(
     !state.questComplete &&
     !state.noActiveQuest &&
     gearReady &&
-    state.level >= 4 &&
+    state.level >= Math.max(tuning.questBossMinLevel, state.mapLevel ?? tuning.questBossMinLevel) &&
     (hpRatio ?? 1) > tuning.questBossMinFightHpRatio;
   return {
     objective: "Win TUICraft efficiently while avoiding death, kicks, bans, and needless server load.",
@@ -3341,7 +3377,7 @@ function buildJudgePayload(
       "Missing armor alone is not a retreat reason for full-health level-appropriate mob farming, especially at level 1.",
       `Before level ${tuning.eliteQuestMinLevel}, treat ${tuning.lowLevelSafeTargetHealHpRatio} as the regular-fight HP floor and avoid more than ${tuning.maxAdjacentRegularMobs} adjacent regular mob.`,
       "If the visible regular target HP resets upward or stalls, prefer a reset/heal path over repeatedly attacking the same situation.",
-      `Prefer boss progress only when bossEligible is true and HP is above ${tuning.questBossMinFightHpRatio}.`,
+      `Prefer boss progress only when bossEligible is true: accepted Elite Slayer, level at least ${tuning.questBossMinLevel}, weapon upgrade at least ${tuning.questBossMinWeaponUpgrade}, armor upgrade at least ${tuning.questBossMinArmorUpgrade}, and HP above ${tuning.questBossMinFightHpRatio}.`,
       `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, below the low-level regular-fight floor, the target is over-level, a boss is adjacent/targeted, multiple mobs are adjacent, target HP has reset/stalled, or no safe progress candidate exists.`,
       "A distant visible boss is not a retreat reason when safeMobFarming is true.",
       "Do not choose regular mob farming over a visible boss when bossEligible is true, unless HP is below the configured boss threshold.",
@@ -3361,6 +3397,9 @@ function buildJudgePayload(
         questBossPreEngageRetreatHpRatio: tuning.questBossPreEngageRetreatHpRatio,
         questBossEngagedRetreatHpRatio: tuning.questBossEngagedRetreatHpRatio,
         questBossMinFightHpRatio: tuning.questBossMinFightHpRatio,
+        questBossMinLevel: tuning.questBossMinLevel,
+        questBossMinWeaponUpgrade: tuning.questBossMinWeaponUpgrade,
+        questBossMinArmorUpgrade: tuning.questBossMinArmorUpgrade,
         safeTargetHealHpRatio: tuning.safeTargetHealHpRatio,
         lowLevelSafeTargetHealHpRatio: tuning.lowLevelSafeTargetHealHpRatio,
         unsafeTargetHealHpRatio: tuning.unsafeTargetHealHpRatio,
