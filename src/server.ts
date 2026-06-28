@@ -1313,16 +1313,6 @@ class BotRunner {
         run.mageNeedsManaRest = false;
         run.mageManaRestUntil = 0;
       }
-      if (
-        this.hasAcceptedEliteQuest(run, state) &&
-        !this.hasQuestBossReadiness(run, state) &&
-        state.maxDepth &&
-        state.maxDepth > 1 &&
-        Date.now() < run.savedDepthBlockedUntil
-      ) {
-        return { label: "wait for saved depth reset", key: "space" };
-      }
-
       if (state.armorMissing && !run.starterArmorChecked) {
         return { label: "open inventory to equip starter armor", command: "/inventory" };
       }
@@ -1374,6 +1364,19 @@ class BotRunner {
         return chatAction;
       }
 
+      if (
+        this.hasAcceptedEliteQuest(run, state) &&
+        !this.hasQuestBossReadiness(run, state) &&
+        state.maxDepth &&
+        state.maxDepth > 1 &&
+        Date.now() < run.savedDepthBlockedUntil
+      ) {
+        const doorStep = this.stepToward(state, ["D"], "onto", { avoidAdjacentKinds: ["S"] });
+        if (doorStep) {
+          return { label: "enter fallback quest portal", key: doorStep };
+        }
+      }
+
       if (/Dungeon Portal|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
         return this.savedPortalAction(run, state);
       }
@@ -1403,6 +1406,7 @@ class BotRunner {
       const shouldFarmSavedDepth = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
+          Date.now() >= run.savedDepthBlockedUntil &&
           savedDepthFarmLevel !== undefined &&
           state.mapLevel &&
           state.mapLevel < savedDepthFarmLevel
@@ -2070,6 +2074,9 @@ class BotRunner {
         state.maxDepth &&
         state.maxDepth > 1
       ) {
+        if (Date.now() < run.savedDepthBlockedUntil) {
+          return { label: "enter fallback quest dungeon portal", command: "/enter 1" };
+        }
         return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
       }
       return { label: "enter quest dungeon portal", command: "/enter 1" };
