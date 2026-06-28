@@ -13,8 +13,8 @@
   "chatMaxMessages": 2,
   "tuning": {
     "attackCooldownMs": 1800,
-    "spellCooldownMs": 250,
-    "mageMeleeFinishHp": 0,
+    "spellCooldownMs": 1200,
+    "mageMeleeFinishHp": 10,
     "safeTargetHealHpRatio": 0.45,
     "lowLevelSafeTargetHealHpRatio": 0.58,
     "targetHpResetBailCount": 6,
