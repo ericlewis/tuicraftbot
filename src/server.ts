@@ -2220,7 +2220,10 @@ class BotRunner {
       entities,
       grid,
       text: screen.text,
-      questInProgress: /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill|Quest:\s*Elite Slayer\s*\(Ready!\)/i.test(screen.text),
+      questInProgress:
+        /Status:\s*In Progress|Quest '.*' accepted|Progress:\s*Kill|Quest:\s*Elite Slayer\s*\((?:Active|Ready!)\)/i.test(
+          screen.text
+        ),
       questComplete: /Status:\s*(?:Complete|Ready to Turn In)|Progress:\s*Completed|Quest complete|Reward claimed/i.test(screen.text),
       noActiveQuest: /\bNo active quest\b/i.test(screen.text),
       manaExhausted: noManaIndex >= 0 && noManaIndex > manaRestIndex,
