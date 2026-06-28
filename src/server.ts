@@ -694,6 +694,7 @@ type BotRunState = {
   bossLureMoves: number;
   bossChipMoves: number;
   lastQuestBossEngagedAt: number;
+  lastBossBreathCueCount: number;
   savedDepthBlockedUntil: number;
   mageNeedsManaRest: boolean;
   mageManaRestUntil: number;
@@ -841,6 +842,7 @@ class BotRunner {
       bossLureMoves: 0,
       bossChipMoves: 0,
       lastQuestBossEngagedAt: 0,
+      lastBossBreathCueCount: 0,
       savedDepthBlockedUntil: 0,
       mageNeedsManaRest: false,
       mageManaRestUntil: 0,
@@ -1259,6 +1261,9 @@ class BotRunner {
     this.hydrateKnownCharacterState(run, state);
     this.rememberCharacterState(run, state);
     this.logWinState(run, state);
+    if (!state.inDungeon) {
+      run.lastBossBreathCueCount = this.bossBreathCueCount(state);
+    }
     if (!state.weaponMissing) {
       run.starterWeaponChecked = true;
     }
@@ -1493,8 +1498,10 @@ class BotRunner {
         selectedSafeRegularTarget && isMageRun && hasSpellMana
       );
       const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
-      const bossBreathCharging = /begins inhaling|fiery blast is charging/i.test(state.text);
+      const bossBreathCueCount = this.bossBreathCueCount(state);
+      const bossBreathCharging = bossBreathCueCount > run.lastBossBreathCueCount;
       if (questBossRun && bossBreathCharging && nearestBoss !== undefined) {
+        run.lastBossBreathCueCount = bossBreathCueCount;
         const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
         if (awayStep) {
           return { label: "evade boss fire breath", key: awayStep };
@@ -2518,6 +2525,10 @@ class BotRunner {
 
   private isInnOpen(state: ParsedGameState): boolean {
     return /---\s*Inn\s*---|Welcome to the Hearthstone Inn|Passive regeneration is greatly/i.test(state.text);
+  }
+
+  private bossBreathCueCount(state: ParsedGameState): number {
+    return [...state.text.matchAll(/begins inhaling|fiery blast is charging/gi)].length;
   }
 
   private hasAdjacent(state: ParsedGameState, kinds: string[]): boolean {
