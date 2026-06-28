@@ -100,6 +100,7 @@ type BotTuningConfig = {
   nearLevelFallbackXpRemaining: number;
   targetHpResetBailCount: number;
   regularFightTimeoutMs: number;
+  dungeonProgressStallMs: number;
 };
 
 type BotRunSummary = {
@@ -314,7 +315,8 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   maxAdjacentRegularMobs: 1,
   nearLevelFallbackXpRemaining: 0,
   targetHpResetBailCount: 1,
-  regularFightTimeoutMs: 45_000
+  regularFightTimeoutMs: 45_000,
+  dungeonProgressStallMs: 30_000
 };
 
 class GameBridge {
@@ -817,6 +819,8 @@ type BotRunState = {
   regularTargetStartedAt: number;
   regularTargetLastProgressAt: number;
   regularTargetHpResets: number;
+  dungeonProgressSignature?: string;
+  dungeonProgressSince: number;
   lastStateSignature?: string;
   judgeEnabled: boolean;
   judgeConfigs: JudgeConfig[];
@@ -979,6 +983,8 @@ class BotRunner {
       regularTargetStartedAt: 0,
       regularTargetLastProgressAt: 0,
       regularTargetHpResets: 0,
+      dungeonProgressSignature: undefined,
+      dungeonProgressSince: 0,
       judgeEnabled,
       judgeConfigs,
       judgeMaxCalls: clampInteger(
@@ -1437,6 +1443,7 @@ class BotRunner {
 
     if (state.inTown) {
       this.resetRegularTargetFight(run);
+      this.resetDungeonProgressStall(run);
       run.bossLureMoves = 0;
       run.bossChipMoves = 0;
       run.lastQuestBossTargetHp = undefined;
@@ -2099,6 +2106,16 @@ class BotRunner {
       });
       if (fightStep) {
         return { label: shouldHuntBoss ? "hunt elite or boss" : "hunt mob", key: fightStep };
+      }
+
+      if (
+        this.shouldResetStalledDungeonProgress(run, state, {
+          nearestBoss,
+          questBossRun,
+          questBossReady
+        })
+      ) {
+        return { label: "reset stalled topoff dungeon", command: "/stuck" };
       }
 
       if (questBossRun && !canFightQuestBoss && nearestBoss !== undefined && nearestBoss <= 6) {
@@ -2822,6 +2839,41 @@ class BotRunner {
     run.regularTargetStartedAt = 0;
     run.regularTargetLastProgressAt = 0;
     run.regularTargetHpResets = 0;
+  }
+
+  private shouldResetStalledDungeonProgress(
+    run: BotRunState,
+    state: ParsedGameState,
+    options: { nearestBoss?: number; questBossRun: boolean; questBossReady: boolean }
+  ): boolean {
+    if (!state.inDungeon || !options.questBossRun || options.questBossReady || options.nearestBoss === undefined) {
+      this.resetDungeonProgressStall(run);
+      return false;
+    }
+    if (state.targetHp || state.targetIsEliteOrBoss) {
+      this.resetDungeonProgressStall(run);
+      return false;
+    }
+    const signature = [
+      state.mapName ?? "dungeon",
+      state.level,
+      state.xp ? `${state.xp.current}/${state.xp.max}` : "?",
+      state.gold ?? "?",
+      state.entities.filter((entity) => entity.kind === "M").length
+    ].join("|");
+    const now = Date.now();
+    if (run.dungeonProgressSignature !== signature) {
+      run.dungeonProgressSignature = signature;
+      run.dungeonProgressSince = now;
+      return false;
+    }
+    const stallMs = run.tuning.dungeonProgressStallMs ?? DEFAULT_BOT_TUNING.dungeonProgressStallMs;
+    return now - (run.dungeonProgressSince || now) >= stallMs;
+  }
+
+  private resetDungeonProgressStall(run: BotRunState): void {
+    run.dungeonProgressSignature = undefined;
+    run.dungeonProgressSince = 0;
   }
 
   private nextMerchantCommand(
@@ -4300,6 +4352,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "nearLevelFallbackXpRemaining");
   setTuningNumber(tuning, source, "targetHpResetBailCount");
   setTuningNumber(tuning, source, "regularFightTimeoutMs");
+  setTuningNumber(tuning, source, "dungeonProgressStallMs");
   return Object.keys(tuning).length > 0 ? tuning : undefined;
 }
 
@@ -4444,6 +4497,13 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       "TUICRAFT_REGULAR_FIGHT_TIMEOUT_MS",
       5_000,
       300_000
+    ),
+    dungeonProgressStallMs: tuneInteger(
+      overrides,
+      "dungeonProgressStallMs",
+      "TUICRAFT_DUNGEON_PROGRESS_STALL_MS",
+      5_000,
+      300_000
     )
   };
 }
@@ -4576,7 +4636,8 @@ function buildJudgePayload(
         unsafeTargetHealHpRatio: tuning.unsafeTargetHealHpRatio,
         maxAdjacentRegularMobs: tuning.maxAdjacentRegularMobs,
         targetHpResetBailCount: tuning.targetHpResetBailCount,
-        regularFightTimeoutMs: tuning.regularFightTimeoutMs
+        regularFightTimeoutMs: tuning.regularFightTimeoutMs,
+        dungeonProgressStallMs: tuning.dungeonProgressStallMs
       }
     },
     state: {
