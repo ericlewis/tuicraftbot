@@ -1602,6 +1602,10 @@ class BotRunner {
 
     if (state.inDungeon) {
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
+      if (run.questComplete || state.questComplete) {
+        run.questComplete = true;
+        return { label: "bail to claim quest reward", command: "/stuck" };
+      }
       const allowedTargetLevel = state.level + 1;
       const nearestBoss = this.nearestDistance(state, ["B"]);
       const canFightQuestBoss = this.canFightQuestBoss(run, state, hpRatio);
