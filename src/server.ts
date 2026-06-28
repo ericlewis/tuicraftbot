@@ -2006,6 +2006,9 @@ class BotRunner {
 
   private savedPortalAction(run: BotRunState, state: ParsedGameState): BotAction {
     if ((run.questAccepted || state.questInProgress) && state.level >= 4) {
+      if (!this.hasQuestBossReadiness(run, state) && state.maxDepth && state.maxDepth > 1) {
+        return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
+      }
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
     if (state.maxDepth && state.maxDepth > 1 && state.level >= 4) {
@@ -2015,23 +2018,18 @@ class BotRunner {
   }
 
   private canFightQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
-    const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade;
-    const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
-    const weaponReady =
-      !state.weaponMissing &&
-      (weaponUpgrade === undefined || weaponUpgrade >= run.tuning.questBossMinWeaponUpgrade);
-    const armorReady =
-      !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= run.tuning.questBossMinArmorUpgrade);
-    return (
-      this.hasAcceptedEliteQuest(run, state) &&
-      hpRatio > run.tuning.questBossMinFightHpRatio &&
-      state.level >= Math.max(run.tuning.questBossMinLevel, state.mapLevel ?? run.tuning.questBossMinLevel) &&
-      weaponReady &&
-      armorReady
-    );
+    return this.hasQuestBossReadiness(run, state) && hpRatio > run.tuning.questBossMinFightHpRatio;
   }
 
   private canContinueQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
+    return (
+      this.hasQuestBossReadiness(run, state) &&
+      Boolean(state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level) &&
+      hpRatio > run.tuning.questBossEngagedRetreatHpRatio
+    );
+  }
+
+  private hasQuestBossReadiness(run: BotRunState, state: ParsedGameState): boolean {
     const weaponUpgrade = state.weaponUpgrade ?? run.lastKnownWeaponUpgrade;
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade;
     const weaponReady =
@@ -2041,9 +2039,7 @@ class BotRunner {
       !state.armorMissing && (armorUpgrade === undefined || armorUpgrade >= run.tuning.questBossMinArmorUpgrade);
     return (
       this.hasAcceptedEliteQuest(run, state) &&
-      Boolean(state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level) &&
-      state.level >= run.tuning.questBossMinLevel &&
-      hpRatio > run.tuning.questBossEngagedRetreatHpRatio &&
+      state.level >= Math.max(run.tuning.questBossMinLevel, state.mapLevel ?? run.tuning.questBossMinLevel) &&
       weaponReady &&
       armorReady
     );
