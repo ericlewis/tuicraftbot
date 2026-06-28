@@ -1513,7 +1513,7 @@ class BotRunner {
         !run.questAccepted &&
         !state.questInProgress &&
         readyForEliteQuest &&
-        this.hasQuestBossLevelAndGearReadiness(run, state)
+        (this.hasQuestBossLevelAndGearReadiness(run, state) || this.shouldTopOffNearLevel(run, state))
       ) {
         const questStep = this.stepToward(state, ["Q"], "adjacent");
         if (questStep) {
