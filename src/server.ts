@@ -1313,6 +1313,15 @@ class BotRunner {
         run.mageNeedsManaRest = false;
         run.mageManaRestUntil = 0;
       }
+      if (
+        this.hasAcceptedEliteQuest(run, state) &&
+        !this.hasQuestBossReadiness(run, state) &&
+        state.maxDepth &&
+        state.maxDepth > 1 &&
+        Date.now() < run.savedDepthBlockedUntil
+      ) {
+        return { label: "wait for saved depth reset", key: "space" };
+      }
 
       if (state.armorMissing && !run.starterArmorChecked) {
         return { label: "open inventory to equip starter armor", command: "/inventory" };
@@ -1411,7 +1420,7 @@ class BotRunner {
             (nearestBoss !== undefined && nearestBoss <= run.tuning.earlyBossContactDistance))
       );
       if (savedDepthBossBlocked) {
-        run.savedDepthBlockedUntil = Date.now() + 180_000;
+        run.savedDepthBlockedUntil = Date.now() + 45_000;
         return { label: "bail from blocked saved-depth boss", command: "/stuck" };
       }
       const lowLevelHealFloor = preEliteFarming ? 0.7 : 0;
