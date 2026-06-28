@@ -184,6 +184,7 @@ server.registerTool(
           attackCooldownMs: z.number().int().min(200).max(10000).optional(),
           spellCooldownMs: z.number().int().min(200).max(10000).optional(),
           mageMeleeFinishHp: z.number().int().min(0).max(10000).optional(),
+          lowHpFinishHpRatio: z.number().min(0).max(1).optional(),
           mageManaRestMs: z.number().int().min(0).max(120000).optional(),
           maxAdjacentRegularMobs: z.number().int().min(1).max(8).optional(),
           nearLevelFallbackXpRemaining: z.number().int().min(0).max(10000).optional(),

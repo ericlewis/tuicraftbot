@@ -91,6 +91,7 @@ type BotTuningConfig = {
   attackCooldownMs: number;
   spellCooldownMs: number;
   mageMeleeFinishHp: number;
+  lowHpFinishHpRatio: number;
   mageManaRestMs: number;
   maxAdjacentRegularMobs: number;
   nearLevelFallbackXpRemaining: number;
@@ -215,6 +216,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   attackCooldownMs: 3_000,
   spellCooldownMs: 1_500,
   mageMeleeFinishHp: 0,
+  lowHpFinishHpRatio: 0.45,
   mageManaRestMs: 15_000,
   maxAdjacentRegularMobs: 1,
   nearLevelFallbackXpRemaining: 0,
@@ -1657,7 +1659,7 @@ class BotRunner {
           state.targetHp.current <= run.tuning.mageMeleeFinishHp &&
           this.hasAdjacent(state, ["M"])
       );
-      if (canMeleeFinishTarget && hpRatio > safeTargetHealThreshold) {
+      if (canMeleeFinishTarget && hpRatio > run.tuning.lowHpFinishHpRatio) {
         const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
         if (!attackReady) {
           return { label: "wait to finish low-hp target", wait: true };
@@ -3362,6 +3364,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "attackCooldownMs");
   setTuningNumber(tuning, source, "spellCooldownMs");
   setTuningNumber(tuning, source, "mageMeleeFinishHp");
+  setTuningNumber(tuning, source, "lowHpFinishHpRatio");
   setTuningNumber(tuning, source, "mageManaRestMs");
   setTuningNumber(tuning, source, "maxAdjacentRegularMobs");
   setTuningNumber(tuning, source, "nearLevelFallbackXpRemaining");
@@ -3474,6 +3477,7 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
     attackCooldownMs: tuneInteger(overrides, "attackCooldownMs", "TUICRAFT_ATTACK_COOLDOWN_MS", 200, 10_000),
     spellCooldownMs: tuneInteger(overrides, "spellCooldownMs", "TUICRAFT_SPELL_COOLDOWN_MS", 200, 10_000),
     mageMeleeFinishHp: tuneInteger(overrides, "mageMeleeFinishHp", "TUICRAFT_MAGE_MELEE_FINISH_HP", 0, 10_000),
+    lowHpFinishHpRatio: tuneNumber(overrides, "lowHpFinishHpRatio", "TUICRAFT_LOW_HP_FINISH_HP_RATIO", 0, 1),
     mageManaRestMs: tuneInteger(overrides, "mageManaRestMs", "TUICRAFT_MAGE_MANA_REST_MS", 0, 120_000),
     maxAdjacentRegularMobs: tuneInteger(
       overrides,
