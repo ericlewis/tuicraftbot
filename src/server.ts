@@ -2690,8 +2690,8 @@ class BotRunner {
   }
 
   private isWeaponReady(run: BotRunState, weaponUpgrade: number | undefined, weaponPower: number | undefined): boolean {
-    if (weaponUpgrade !== undefined && weaponUpgrade >= run.tuning.questBossMinWeaponUpgrade) {
-      return true;
+    if (weaponUpgrade !== undefined) {
+      return weaponUpgrade >= run.tuning.questBossMinWeaponUpgrade;
     }
     const requiredPower = 5 + run.tuning.questBossMinWeaponUpgrade;
     if (weaponPower !== undefined && weaponPower >= requiredPower) {
@@ -2701,8 +2701,8 @@ class BotRunner {
   }
 
   private isArmorReady(run: BotRunState, armorUpgrade: number | undefined, armorValue: number | undefined): boolean {
-    if (armorUpgrade !== undefined && armorUpgrade >= run.tuning.questBossMinArmorUpgrade) {
-      return true;
+    if (armorUpgrade !== undefined) {
+      return armorUpgrade >= run.tuning.questBossMinArmorUpgrade;
     }
     const requiredArmor = 3 + run.tuning.questBossMinArmorUpgrade;
     if (armorValue !== undefined && armorValue >= requiredArmor) {
