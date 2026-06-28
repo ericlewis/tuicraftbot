@@ -1806,6 +1806,7 @@ class BotRunner {
       action.label === "wait for elite spell cooldown" ||
       action.label === "cast fireball at boss" ||
       action.label === "wait for boss spell cooldown" ||
+      action.label === "kite boss during spell cooldown" ||
       action.label === "kite target during cooldown"
     ) {
       return false;
