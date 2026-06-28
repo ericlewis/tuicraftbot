@@ -157,6 +157,10 @@ budget when the game returns.
 
 Generated bot passwords are redacted in `/api/raw`.
 
+Equipment upgrade estimates use
+`TUICRAFT_UPGRADE_COST_BASE_GOLD * (currentUpgrade + 1)^2`; the observed base
+for the current game economy is `25`.
+
 ## Live progression view
 
 `/world` is the primary progress surface for a win run. It parses the current

@@ -3043,8 +3043,8 @@ class BotRunner {
     const visibleWeaponCost = state.text.match(/Weapon:\s*\+\d+\s+\(Cost:\s*(\d+)g\)/i)?.[1];
     const visibleArmorCost = state.text.match(/Armor\s*:\s*\+\d+\s+\(Cost:\s*(\d+)g\)/i)?.[1];
     const visibleHaste = state.text.match(/Haste\s*:\s*Lvl\s*(\d+)\/(\d+)\s+\(Cost:\s*(\d+)g\)/i);
-    const weaponCost = visibleWeaponCost ? Number(visibleWeaponCost) : tuning.upgradeCostBaseGold * (weaponUpgrade + 1);
-    const armorCost = visibleArmorCost ? Number(visibleArmorCost) : tuning.upgradeCostBaseGold * (armorUpgrade + 1);
+    const weaponCost = visibleWeaponCost ? Number(visibleWeaponCost) : this.estimatedEquipmentUpgradeCost(tuning, weaponUpgrade);
+    const armorCost = visibleArmorCost ? Number(visibleArmorCost) : this.estimatedEquipmentUpgradeCost(tuning, armorUpgrade);
     const hasteLevel = visibleHaste ? Number(visibleHaste[1]) : undefined;
     const hasteCap = visibleHaste ? Number(visibleHaste[2]) : tuning.maxHasteLevel;
     const hasteCost = visibleHaste ? Number(visibleHaste[3]) : undefined;
@@ -3089,8 +3089,8 @@ class BotRunner {
     const armorUpgrade = state.armorUpgrade ?? run.lastKnownArmorUpgrade ?? 0;
     const hasteLevel = state.hasteLevel ?? run.lastKnownHasteLevel ?? 0;
     const probeCostRatio = 0.8;
-    const estimatedWeaponCost = run.tuning.upgradeCostBaseGold * (weaponUpgrade + 1);
-    const estimatedArmorCost = run.tuning.upgradeCostBaseGold * (armorUpgrade + 1);
+    const estimatedWeaponCost = this.estimatedEquipmentUpgradeCost(run.tuning, weaponUpgrade);
+    const estimatedArmorCost = this.estimatedEquipmentUpgradeCost(run.tuning, armorUpgrade);
     const canAffordKnownUpgrade =
       (weaponUpgrade < run.tuning.maxWeaponUpgrade && gold >= estimatedWeaponCost * probeCostRatio) ||
       (armorUpgrade < run.tuning.maxArmorUpgrade && gold >= estimatedArmorCost * probeCostRatio) ||
@@ -3109,6 +3109,10 @@ class BotRunner {
       return false;
     }
     return true;
+  }
+
+  private estimatedEquipmentUpgradeCost(tuning: BotTuningConfig, currentUpgrade: number): number {
+    return tuning.upgradeCostBaseGold * (currentUpgrade + 1) * (currentUpgrade + 1);
   }
 
   private estimatedHasteCost(currentLevel: number): number {

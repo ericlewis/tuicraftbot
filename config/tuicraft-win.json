@@ -33,7 +33,7 @@
     "maxWeaponUpgrade": 5,
     "maxArmorUpgrade": 6,
     "maxHasteLevel": 4,
-    "upgradeCostBaseGold": 125,
+    "upgradeCostBaseGold": 25,
     "earlyBossAvoidPlayerLevel": 3,
     "earlyBossAvoidDistance": 1,
     "earlyBossContactDistance": 1,
