@@ -1477,6 +1477,10 @@ class BotRunner {
         }
         if (state.targetIsBoss && isMageRun && hasSpellMana) {
           if (!spellReady) {
+            const kiteStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
+            if (kiteStep) {
+              return { label: "kite boss during spell cooldown", key: kiteStep };
+            }
             return { label: "wait for boss spell cooldown", wait: true };
           }
           return { label: "cast fireball at boss", text: "f" };
