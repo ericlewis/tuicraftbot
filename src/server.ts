@@ -1494,6 +1494,8 @@ class BotRunner {
         }
       }
       if (this.isMerchantShopOpen(state)) {
+        run.lastMerchantCheckGold = state.gold ?? run.lastKnownGold;
+        run.nextMerchantCheckAt = Date.now() + 120_000;
         const awayStep = this.stepAwayFrom(state, ["S"]);
         return { label: "leave merchant shop", key: awayStep ?? "d" };
       }
