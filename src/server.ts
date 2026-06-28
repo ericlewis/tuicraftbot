@@ -1505,8 +1505,15 @@ class BotRunner {
       }
       const knownMana = state.mana?.current ?? run.lastKnownMana?.current;
       const hasSpellMana = knownMana === undefined ? !run.mageNeedsManaRest : knownMana >= 10;
+      const savedDepthBossVisible = Boolean(
+        questBossRun &&
+          !this.hasQuestBossReadiness(run, state) &&
+          state.mapName &&
+          !/Fargodeep Cave/i.test(state.mapName) &&
+          nearestBoss !== undefined
+      );
       const canCastFireball = Boolean(
-        selectedSafeRegularTarget && isMageRun && hasSpellMana
+        selectedSafeRegularTarget && isMageRun && hasSpellMana && !savedDepthBossVisible
       );
       const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
       const bossBreathCueCount = this.bossBreathCueCount(state);
