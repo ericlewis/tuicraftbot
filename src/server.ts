@@ -1390,14 +1390,14 @@ class BotRunner {
         run.lastQuestBossEngagedAt = Date.now();
       }
       const preEliteFarming = state.level < run.tuning.eliteQuestMinLevel && !questBossRun;
+      const savedDepthFarmLevel = this.savedDepthFarmLevel(state);
       const shouldFarmSavedDepth = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
           Date.now() >= run.savedDepthBlockedUntil &&
-          state.maxDepth &&
-          state.maxDepth > 1 &&
+          savedDepthFarmLevel !== undefined &&
           state.mapLevel &&
-          state.mapLevel < Math.max(2, state.level - 2)
+          state.mapLevel < savedDepthFarmLevel
       );
       if (shouldFarmSavedDepth) {
         return { label: "bail to saved depth for gear farm", command: "/stuck" };
@@ -1405,10 +1405,9 @@ class BotRunner {
       const savedDepthBossBlocked = Boolean(
         questBossRun &&
           !this.hasQuestBossReadiness(run, state) &&
-          state.maxDepth &&
-          state.maxDepth > 1 &&
+          savedDepthFarmLevel !== undefined &&
           state.mapLevel &&
-          state.mapLevel >= Math.max(2, state.level - 2) &&
+          state.mapLevel >= savedDepthFarmLevel &&
           (state.targetIsBoss ||
             (nearestBoss !== undefined && nearestBoss <= run.tuning.earlyBossContactDistance))
       );
@@ -2064,6 +2063,13 @@ class BotRunner {
       return { label: "enter saved dungeon depth", command: "/enter 2" };
     }
     return { label: "enter saved dungeon portal", command: "/enter 1" };
+  }
+
+  private savedDepthFarmLevel(state: ParsedGameState): number | undefined {
+    if (!state.maxDepth || state.maxDepth <= 1) {
+      return undefined;
+    }
+    return Math.min(state.maxDepth, Math.max(2, state.level - 2));
   }
 
   private canFightQuestBoss(run: BotRunState, state: ParsedGameState, hpRatio: number): boolean {
