@@ -130,6 +130,15 @@ type BotRunSummary = {
     messages: number;
     maxMessages: number;
   };
+  knownState?: {
+    level?: number;
+    className?: string;
+    mana?: { current: number; max: number };
+    xp?: { current: number; max: number };
+    gold?: number;
+    weaponUpgrade?: number;
+    armorUpgrade?: number;
+  };
   tuning?: BotTuningConfig;
 };
 
@@ -833,6 +842,15 @@ class BotRunner {
         enabled: Boolean(this.run.chatEnabled),
         messages: this.run.chatMessages ?? 0,
         maxMessages: this.run.chatMaxMessages ?? 0
+      },
+      knownState: {
+        level: this.run.lastKnownLevel,
+        className: this.run.lastKnownClassName,
+        mana: this.run.lastKnownMana,
+        xp: this.run.lastKnownXp,
+        gold: this.run.lastKnownGold,
+        weaponUpgrade: this.run.lastKnownWeaponUpgrade,
+        armorUpgrade: this.run.lastKnownArmorUpgrade
       },
       tuning: this.run.tuning ?? DEFAULT_BOT_TUNING
     };
@@ -3386,7 +3404,7 @@ function buildWorldSnapshot(screen: ScreenSnapshot, botSummary: BotRunSummary, l
   const text = screen.text || screen.lines.join("\n");
   const mapName = text.match(/\[Map:\s*([^\]]+)\]/)?.[1]?.trim();
   const { grid, entities } = parseWorldGrid(screen.lines);
-  const stats = hydrateWorldStatsFromLogs(parseWorldCharacterStats(text), logs);
+  const stats = hydrateWorldStatsFromBotSummary(hydrateWorldStatsFromLogs(parseWorldCharacterStats(text), logs), botSummary);
   return {
     ts: screen.ts,
     frame: screen.frame,
@@ -3572,11 +3590,45 @@ function hydrateWorldStatsFromLogs(stats: WorldCharacterStats, logs: BotLog[]): 
   return hydrated;
 }
 
+function hydrateWorldStatsFromBotSummary(stats: WorldCharacterStats, botSummary: BotRunSummary): WorldCharacterStats {
+  const knownState = asPlainRecord(botSummary.knownState);
+  const hydrated: WorldCharacterStats = { ...stats };
+  hydrated.name ??= botSummary.characterName;
+  hydrated.level ??= numberValue(knownState.level);
+  hydrated.className ??= stringValue(knownState.className);
+  hydrated.mana ??= parseWorldMeterRecord(knownState.mana);
+  hydrated.xp ??= parseWorldMeterRecord(knownState.xp);
+  hydrated.gold ??= numberValue(knownState.gold);
+  const weaponUpgrade = numberValue(knownState.weaponUpgrade);
+  const armorUpgrade = numberValue(knownState.armorUpgrade);
+  if (!hydrated.weapon && weaponUpgrade !== undefined) {
+    hydrated.weapon = `Rusty Sword +${weaponUpgrade}`;
+  }
+  if (!hydrated.armor && armorUpgrade !== undefined) {
+    hydrated.armor = `Armor +${armorUpgrade}`;
+  }
+  return hydrated;
+}
+
 function parseWorldMeterText(value: unknown): WorldMeter | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
   return parseWorldMeter(value.match(/([0-9]+)\/([0-9]+)/)?.slice(1, 3));
+}
+
+function parseWorldMeterRecord(value: unknown): WorldMeter | undefined {
+  const record = asPlainRecord(value);
+  const current = numberValue(record.current);
+  const max = numberValue(record.max);
+  if (current === undefined || max === undefined || max <= 0) {
+    return undefined;
+  }
+  return {
+    current,
+    max,
+    ratio: clampNumber(current / max, 0, 1)
+  };
 }
 
 function parseNumberMatch(value: string | undefined): number | undefined {

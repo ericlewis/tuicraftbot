@@ -1,8 +1,8 @@
 {
   "mode": "win",
-  "durationSeconds": 1800,
+  "durationSeconds": 7200,
   "intervalMs": 300,
-  "maxActions": 5000,
+  "maxActions": 15000,
   "maxReconnects": 10,
   "characterName": "CodexMageqvg",
   "characterClass": "mage",
