@@ -1389,7 +1389,6 @@ class BotRunner {
             return { label: "enter fallback quest portal", key: doorStep };
           }
         }
-        return { label: "wait out saved-depth block", wait: true };
       }
 
       if (/Dungeon Portal|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
@@ -2192,7 +2191,7 @@ class BotRunner {
         state.maxDepth &&
         state.maxDepth > 1
       ) {
-        if (this.shouldTopOffNearLevel(run, state) || Date.now() < run.savedDepthBlockedUntil) {
+        if (this.shouldTopOffNearLevel(run, state)) {
           return { label: "enter fallback quest dungeon portal", command: "/enter 1" };
         }
         return { label: "enter saved dungeon depth to farm", command: "/enter 2" };
