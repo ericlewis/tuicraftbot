@@ -208,6 +208,7 @@ server.registerTool(
           townHealHpRatio: z.number().min(0).max(1).optional(),
           questBossPreEngageRetreatHpRatio: z.number().min(0).max(1).optional(),
           questBossEngagedRetreatHpRatio: z.number().min(0).max(1).optional(),
+          questBossFinishHpRatio: z.number().min(0).max(1).optional(),
           questBossMinFightHpRatio: z.number().min(0).max(1).optional(),
           safeTargetHealHpRatio: z.number().min(0).max(1).optional(),
           lowLevelSafeTargetHealHpRatio: z.number().min(0).max(1).optional(),

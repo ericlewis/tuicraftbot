@@ -39,6 +39,7 @@
     "earlyBossContactDistance": 1,
     "questBossPreEngageRetreatHpRatio": 0.32,
     "questBossEngagedRetreatHpRatio": 0.25,
+    "questBossFinishHpRatio": 0.4,
     "questBossMinFightHpRatio": 0.5,
     "judgeBossHpRatio": 0.25,
     "judgeRetreatCandidateHpRatio": 0.4

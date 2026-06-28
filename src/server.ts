@@ -70,6 +70,7 @@ type BotTuningConfig = {
   townHealHpRatio: number;
   questBossPreEngageRetreatHpRatio: number;
   questBossEngagedRetreatHpRatio: number;
+  questBossFinishHpRatio: number;
   questBossMinFightHpRatio: number;
   safeTargetHealHpRatio: number;
   lowLevelSafeTargetHealHpRatio: number;
@@ -288,6 +289,7 @@ const DEFAULT_BOT_TUNING: BotTuningConfig = {
   townHealHpRatio: 0.95,
   questBossPreEngageRetreatHpRatio: 0.45,
   questBossEngagedRetreatHpRatio: 0.25,
+  questBossFinishHpRatio: 0.4,
   questBossMinFightHpRatio: 0.3,
   safeTargetHealHpRatio: 0.35,
   lowLevelSafeTargetHealHpRatio: 0.65,
@@ -1855,6 +1857,16 @@ class BotRunner {
       const spellReady = Date.now() - run.lastSpellAt >= run.tuning.spellCooldownMs;
       const bossBreathCueCount = this.bossBreathCueCount(state);
       const bossBreathCharging = bossBreathCueCount > run.lastBossBreathCueCount || this.hasActiveBossBreathWarning(state);
+      const questBossFinishHpRatio =
+        run.tuning.questBossFinishHpRatio ?? DEFAULT_BOT_TUNING.questBossFinishHpRatio;
+      const canFinishLowHpQuestBoss = Boolean(
+        questBossRun &&
+          state.targetIsBoss &&
+          state.targetHp &&
+          state.targetHp.current <=
+            Math.max(run.tuning.mageMeleeFinishHp, Math.ceil(state.targetHp.max * questBossFinishHpRatio)) &&
+          hpRatio > run.tuning.lowHpFinishHpRatio
+      );
       if (questBossRun && bossBreathCharging && nearestBoss !== undefined && !state.targetIsBoss) {
         run.lastBossBreathCueCount = Math.max(run.lastBossBreathCueCount, bossBreathCueCount);
         const awayStep = this.bossBreathEscapeStep(state);
@@ -1913,6 +1925,23 @@ class BotRunner {
             label: engagedQuestBossNow ? "bail from boss at critical hp" : "bail to top off before boss",
             command: "/stuck"
           };
+        }
+        if (canFinishLowHpQuestBoss && isMageRun && hasSpellMana) {
+          if (spellReady) {
+            return { label: "finish low-hp boss with fireball", text: "f" };
+          }
+          if (bossBreathCharging) {
+            run.lastBossBreathCueCount = Math.max(run.lastBossBreathCueCount, bossBreathCueCount);
+            const awayStep = this.bossBreathEscapeStep(state);
+            if (awayStep) {
+              return { label: "evade low-hp boss fire breath", key: awayStep };
+            }
+          }
+          const kiteStep = this.bossKiteStep(state);
+          if (kiteStep) {
+            return { label: "kite low-hp boss finish", key: kiteStep };
+          }
+          return { label: "wait to finish low-hp boss", wait: true };
         }
         if (state.targetIsBoss && isMageRun && hasSpellMana) {
           if (spellReady) {
@@ -2367,8 +2396,12 @@ class BotRunner {
       action.label === "wait for elite spell cooldown" ||
       action.label === "evade boss fire breath" ||
       action.label === "cast fireball at boss" ||
+      action.label === "finish low-hp boss with fireball" ||
       action.label === "wait for boss spell cooldown" ||
+      action.label === "wait to finish low-hp boss" ||
       action.label === "kite boss during spell cooldown" ||
+      action.label === "kite low-hp boss finish" ||
+      action.label === "evade low-hp boss fire breath" ||
       action.label === "kite adjacent selected boss" ||
       action.label === "bail from adjacent selected boss" ||
       action.label === "kite adjacent untargeted boss" ||
@@ -4519,6 +4552,7 @@ function parseBotTuning(body: Record<string, unknown>): Partial<BotTuningConfig>
   setTuningNumber(tuning, source, "townHealHpRatio");
   setTuningNumber(tuning, source, "questBossPreEngageRetreatHpRatio");
   setTuningNumber(tuning, source, "questBossEngagedRetreatHpRatio");
+  setTuningNumber(tuning, source, "questBossFinishHpRatio");
   setTuningNumber(tuning, source, "questBossMinFightHpRatio");
   setTuningNumber(tuning, source, "safeTargetHealHpRatio");
   setTuningNumber(tuning, source, "lowLevelSafeTargetHealHpRatio");
@@ -4578,6 +4612,13 @@ function buildBotTuning(overrides: Partial<BotTuningConfig> = {}): BotTuningConf
       overrides,
       "questBossEngagedRetreatHpRatio",
       "TUICRAFT_BOSS_ENGAGED_HP_RATIO",
+      0,
+      1
+    ),
+    questBossFinishHpRatio: tuneNumber(
+      overrides,
+      "questBossFinishHpRatio",
+      "TUICRAFT_BOSS_FINISH_HP_RATIO",
       0,
       1
     ),
@@ -4803,6 +4844,7 @@ function buildJudgePayload(
       `Before level ${tuning.eliteQuestMinLevel}, treat ${tuning.lowLevelSafeTargetHealHpRatio} as the regular-fight HP floor and avoid more than ${tuning.maxAdjacentRegularMobs} adjacent regular mob.`,
       "If the visible regular target HP resets upward or stalls, prefer a reset/heal path over repeatedly attacking the same situation.",
       `Prefer boss progress only when bossEligible is true: accepted Elite Slayer, level at least ${tuning.questBossMinLevel}, weapon upgrade at least ${tuning.questBossMinWeaponUpgrade}, armor upgrade at least ${tuning.questBossMinArmorUpgrade}, Haste level at least ${tuning.questBossMinHasteLevel}, and HP above ${tuning.questBossMinFightHpRatio}.`,
+      `When a selected quest boss is under ${tuning.questBossFinishHpRatio} HP and player HP is above ${tuning.lowHpFinishHpRatio}, prefer a finish candidate over retreat if one is offered.`,
       `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, below the low-level regular-fight floor, the target is over-level, a boss is adjacent/targeted, multiple mobs are adjacent, target HP has reset/stalled, or no safe progress candidate exists.`,
       "A distant visible boss is not a retreat reason when safeMobFarming is true.",
       "Do not choose regular mob farming over a visible boss when bossEligible is true, unless HP is below the configured boss threshold.",
@@ -4821,7 +4863,9 @@ function buildJudgePayload(
         townHealHpRatio: tuning.townHealHpRatio,
         questBossPreEngageRetreatHpRatio: tuning.questBossPreEngageRetreatHpRatio,
         questBossEngagedRetreatHpRatio: tuning.questBossEngagedRetreatHpRatio,
+        questBossFinishHpRatio: tuning.questBossFinishHpRatio,
         questBossMinFightHpRatio: tuning.questBossMinFightHpRatio,
+        lowHpFinishHpRatio: tuning.lowHpFinishHpRatio,
         questBossMinLevel: tuning.questBossMinLevel,
         questBossMinWeaponUpgrade: tuning.questBossMinWeaponUpgrade,
         questBossMinArmorUpgrade: tuning.questBossMinArmorUpgrade,
