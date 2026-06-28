@@ -1296,12 +1296,12 @@ class BotRunner {
         run.mageManaRestUntil = 0;
       }
       if (state.hp && hpRatio < run.tuning.townHealHpRatio) {
-        if (this.isInnOpen(state)) {
-          return { label: "rest in town", key: "space" };
-        }
         const healStep = this.stepToward(state, ["I", "P"], "onto");
         if (healStep) {
           return { label: "go to inn to heal", key: healStep };
+        }
+        if (this.isInnOpen(state)) {
+          return { label: "rest in town", wait: true };
         }
         return { label: "rest in town", key: "space" };
       }
