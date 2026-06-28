@@ -1463,7 +1463,12 @@ class BotRunner {
       }
       const canContinueQuestBoss = this.canContinueQuestBoss(run, state, hpRatio);
       if (canFightQuestBoss || canContinueQuestBoss) {
-        const engagedQuestBossNow = Boolean(state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level);
+        const engagedQuestBossNow = Boolean(
+          (state.targetIsBoss && state.targetLevel && state.targetLevel <= state.level) ||
+            (canFightQuestBoss &&
+              nearestBoss !== undefined &&
+              nearestBoss <= Math.max(2, run.tuning.earlyBossContactDistance + 1))
+        );
         if (
           hpRatio <
           (engagedQuestBossNow
