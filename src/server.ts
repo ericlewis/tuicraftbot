@@ -2460,6 +2460,8 @@ class BotRunner {
       action.label === "wait for boss spell cooldown" ||
       action.label === "wait to finish low-hp boss" ||
       action.label === "kite boss during spell cooldown" ||
+      action.label === "evade untargeted boss fire breath" ||
+      action.label === "kite boss while reacquiring" ||
       action.label === "kite low-hp boss finish" ||
       action.label === "evade low-hp boss fire breath" ||
       action.label === "kite adjacent selected boss" ||
