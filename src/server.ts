@@ -2035,6 +2035,20 @@ class BotRunner {
           }
           return { label: "attack adjacent boss", key: "space" };
         }
+        if (engagedQuestBossNow && !state.targetIsBoss && isMageRun && hasSpellMana && !spellReady) {
+          if (bossBreathCharging) {
+            run.lastBossBreathCueCount = Math.max(run.lastBossBreathCueCount, bossBreathCueCount);
+            const awayStep = this.bossBreathEscapeStep(state);
+            if (awayStep) {
+              return { label: "evade untargeted boss fire breath", key: awayStep };
+            }
+          }
+          const kiteStep = this.bossKiteStep(state);
+          if (kiteStep) {
+            return { label: "kite boss while reacquiring", key: kiteStep };
+          }
+          return { label: "wait while reacquiring boss", wait: true };
+        }
         const bossStep = this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D", "P"] });
         if (bossStep) {
           return { label: "hunt elite or boss", key: bossStep };
