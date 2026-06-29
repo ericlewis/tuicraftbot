@@ -1838,7 +1838,7 @@ class BotRunner {
         if (canFinishRegularBeforeBail) {
           return { label: "finish regular before saved-depth bail", key: "space" };
         }
-        if (hpRatio > 0.9 && run.bossLureMoves < 2) {
+        if (hpRatio > 0.65 && run.bossLureMoves < 6) {
           const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
           if (awayStep) {
             run.bossLureMoves += 1;
@@ -2324,7 +2324,7 @@ class BotRunner {
 
       if (questBossRun && !questBossReady && nearestBoss !== undefined && nearestBoss <= 6) {
         const awayStep = this.stepAwayFrom(state, ["B"], { blockedChars: ["D"] });
-        if (awayStep && hpRatio > 0.9) {
+        if (awayStep && hpRatio > 0.65) {
           return { label: "evade boss-blocked topoff route", key: awayStep };
         }
         return { label: "bail from boss-blocked topoff route", command: "/stuck" };

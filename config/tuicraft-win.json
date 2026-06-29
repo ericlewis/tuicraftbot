@@ -23,7 +23,7 @@
     "regularFightTimeoutMs": 22000,
     "dungeonProgressStallMs": 20000,
     "savedDepthRouteResetMs": 5000,
-    "savedDepthFarmMaxLevel": 8,
+    "savedDepthFarmMaxLevel": 4,
     "mageManaRestMs": 6000,
     "nearLevelFallbackXpRemaining": 2000,
     "goDeeperLevelMargin": 3,
