@@ -2006,6 +2006,10 @@ class BotRunner {
           if (kiteStep) {
             return { label: "kite boss during spell cooldown", key: kiteStep };
           }
+          const attackReady = state.swingReady ?? Date.now() - run.lastAttackAt >= run.tuning.attackCooldownMs;
+          if (attackReady) {
+            return { label: "strike boss during spell cooldown", key: "space" };
+          }
           if (hpRatio < run.tuning.questBossEngagedRetreatHpRatio) {
             return { label: "bail during boss spell cooldown", command: "/stuck" };
           }
@@ -2460,6 +2464,7 @@ class BotRunner {
       action.label === "cast fireball at boss" ||
       action.label === "finish low-hp boss with fireball" ||
       action.label === "wait for boss spell cooldown" ||
+      action.label === "strike boss during spell cooldown" ||
       action.label === "wait to finish low-hp boss" ||
       action.label === "kite boss during spell cooldown" ||
       action.label === "evade untargeted boss fire breath" ||
@@ -2470,6 +2475,7 @@ class BotRunner {
       action.label === "bail from adjacent selected boss" ||
       action.label === "kite adjacent untargeted boss" ||
       action.label === "bail from adjacent untargeted boss" ||
+      action.label === "hunt elite or boss" ||
       action.label === "kite target during cooldown"
     ) {
       return false;
