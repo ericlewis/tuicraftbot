@@ -3702,7 +3702,7 @@ class BotRunner {
     if (!char || char === "█" || char === " ") {
       return false;
     }
-    if (["M", "B"].includes(char)) {
+    if (["M", "B", "H"].includes(char)) {
       return isTarget;
     }
     return true;
