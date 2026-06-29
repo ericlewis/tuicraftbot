@@ -1587,8 +1587,10 @@ class BotRunner {
       run.questAccepted = true;
       this.log("info", "inferred accepted elite quest from recent run history");
     }
-    if (state.questComplete) {
+    if (state.questComplete && !this.hasLiveQuestBossContact(state)) {
       run.questComplete = true;
+    } else if (this.hasLiveQuestBossContact(state)) {
+      run.questComplete = false;
     }
 
     if (state.inTown) {
@@ -1764,7 +1766,7 @@ class BotRunner {
 
     if (state.inDungeon) {
       const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
-      if (run.questComplete || state.questComplete) {
+      if ((run.questComplete || state.questComplete) && !this.hasLiveQuestBossContact(state)) {
         run.questComplete = true;
         return { label: "bail to claim quest reward", command: "/stuck" };
       }
@@ -2791,6 +2793,14 @@ class BotRunner {
       Date.now() - run.lastQuestBossEngagedAt <= 45_000 ||
       Boolean(run.lastQuestBossTargetHp && run.lastQuestBossTargetHp.current < run.lastQuestBossTargetHp.max) ||
       /Shadow Overlord|BOSS Lvl/i.test(state.text)
+    );
+  }
+
+  private hasLiveQuestBossContact(state: ParsedGameState): boolean {
+    return Boolean(
+      state.inDungeon &&
+        ((state.targetIsBoss && state.targetHp && state.targetHp.current > 0) ||
+          state.entities.some((entity) => entity.kind === "B"))
     );
   }
 
