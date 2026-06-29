@@ -719,6 +719,15 @@ type JudgeVote = {
   reason?: string;
 };
 
+type StrategyReview = {
+  model: string;
+  reasoningEffort?: string;
+  weight: number;
+  recommendation: string;
+  confidence: number;
+  reason?: string;
+};
+
 type Point = {
   x: number;
   y: number;
@@ -2367,7 +2376,7 @@ class BotRunner {
     if (!this.hasQuestBossLevelAndGearReadiness(run, state)) {
       return deterministicAction;
     }
-    if (!this.shouldJudgeWinAction(state, deterministicAction)) {
+    if (!this.shouldJudgeWinAction(run, state, deterministicAction)) {
       return deterministicAction;
     }
 
@@ -2419,83 +2428,50 @@ class BotRunner {
     return chosen;
   }
 
-  private shouldJudgeWinAction(state: ParsedGameState, action: BotAction): boolean {
+  private shouldJudgeWinAction(run: BotRunState, state: ParsedGameState, action: BotAction): boolean {
     if (!state.inDungeon) {
       return false;
     }
-    if (action.label?.startsWith("bail ")) {
+    if (this.isActiveQuestBossFight(run, state)) {
       return false;
     }
-    if (
-      action.wait ||
-      action.label === "attack selected regular" ||
-      action.label === "strike weak regular blocker" ||
-      action.label === "wait to strike weak blocker" ||
-      action.label === "cast fireball" ||
-      action.label === "finish low-hp target" ||
-      action.label === "bail from over-depth dungeon" ||
-      action.label === "bail to saved depth for gear farm" ||
-      action.label === "bail from blocked saved-depth boss" ||
-      action.label === "bail to buy upgrade" ||
-      action.label === "bail from unsafe dungeon route" ||
-      action.label === "bail from under-geared boss contact" ||
-      action.label === "bail from under-geared elite target" ||
-      action.label === "bail from multi-mob low-level fight" ||
-      action.label === "evade saved-depth boss contact" ||
-      action.label === "bail from nearby boss before farming" ||
-      action.label === "bail from early boss contact" ||
-      action.label === "bail to heal" ||
-      action.label === "bail to restore mage mana" ||
-      action.label === "bail from multi-mob pre-elite fight" ||
-      action.label === "lure boss away from low-level farm" ||
-      action.label === "target hp reset during regular fight" ||
-      action.label === "regular target hp stalled" ||
-      action.label === "finish regular before saved-depth bail" ||
-      action.label === "seek saved-depth mob" ||
-      action.label === "evade saved-depth boss target" ||
-      action.label === "bail from saved-depth boss target" ||
-      action.label === "seek non-orc starter mob" ||
-      action.label === "disengage orc starter mob" ||
-      action.label === "isolate low-level mob" ||
-      action.label === "isolate pre-elite mob" ||
-      action.label === "finish crowded target" ||
-      action.label === "wait to finish crowded target" ||
-      action.label === "cast fireball at elite" ||
-      action.label === "wait for elite spell cooldown" ||
-      action.label === "evade boss fire breath" ||
-      action.label === "cast fireball at boss" ||
-      action.label === "finish low-hp boss with fireball" ||
-      action.label === "wait for boss spell cooldown" ||
-      action.label === "strike boss during spell cooldown" ||
-      action.label === "wait to finish low-hp boss" ||
-      action.label === "kite boss during spell cooldown" ||
-      action.label === "evade untargeted boss fire breath" ||
-      action.label === "kite boss while reacquiring" ||
-      action.label === "kite low-hp boss finish" ||
-      action.label === "evade low-hp boss fire breath" ||
-      action.label === "kite adjacent selected boss" ||
-      action.label === "bail from adjacent selected boss" ||
-      action.label === "kite adjacent untargeted boss" ||
-      action.label === "bail from adjacent untargeted boss" ||
-      action.label === "hunt elite or boss" ||
-      action.label === "kite target during cooldown"
-    ) {
+    if (this.isTimingCriticalCombatAction(action)) {
       return false;
     }
-    const label = action.label.toLowerCase();
-    if (
-      label.includes("sidestep elite target") ||
-      label.includes("chip elite target") ||
-      label.includes("chip blocking boss") ||
-      label.includes("lure boss")
-    ) {
-      return false;
-    }
+    return this.isStrategicJudgeAction(action);
+  }
+
+  private isActiveQuestBossFight(run: BotRunState, state: ParsedGameState): boolean {
     return Boolean(
-      state.targetIsEliteOrBoss ||
-        this.nearestDistance(state, ["B"]) !== undefined ||
-        this.hasAdjacent(state, ["B", "M"]) ||
-        /\b(?:attack|boss|hunt|bail|heal|stuck)\b/.test(label)
+      state.inDungeon &&
+        ((state.targetIsBoss && /Shadow Overlord/i.test(state.targetText ?? "")) ||
+          Date.now() - run.lastQuestBossEngagedAt <= 12_000 ||
+          (run.lastQuestBossTargetHp && run.lastQuestBossTargetHp.current < run.lastQuestBossTargetHp.max))
+    );
+  }
+
+  private isTimingCriticalCombatAction(action: BotAction): boolean {
+    const label = action.label.toLowerCase();
+    return Boolean(
+      action.wait ||
+        /\b(?:attack|cast|fireball|strike|finish|kite|evade|reacquiring|cooldown|adjacent|low-hp|breath|lure|chip|isolate|disengage|target hp|stalled)\b/i.test(label)
+    );
+  }
+
+  private isStrategicJudgeAction(action: BotAction): boolean {
+    const label = action.label.toLowerCase();
+    return (
+      label === "hunt elite or boss" ||
+      label === "hunt mob" ||
+      label === "probe dungeon safely" ||
+      label === "take dungeon door" ||
+      label.startsWith("enter saved quest depth") ||
+      label.startsWith("enter saved dungeon depth") ||
+      label === "enter quest dungeon portal" ||
+      label === "enter saved dungeon portal" ||
+      label === "bail to saved depth for gear farm" ||
+      label === "bail from over-depth dungeon" ||
+      label === "bail from unsafe dungeon route"
     );
   }
 
@@ -2552,22 +2528,6 @@ class BotRunner {
 
     const hpRatio = state.hp ? state.hp.current / state.hp.max : 1;
     const bossEligible = this.canFightQuestBoss(run, state, hpRatio);
-    if (bossEligible && state.targetIsEliteOrBoss && hpRatio > run.tuning.judgeBossHpRatio) {
-      this.addJudgeCandidate(
-        candidates,
-        "attack_selected_boss",
-        { label: "attack selected boss", key: "space" },
-        "Target panel is an elite or boss and HP is above the critical retreat threshold."
-      );
-    }
-    if (bossEligible && this.hasAdjacent(state, ["B"]) && hpRatio > run.tuning.judgeBossHpRatio) {
-      this.addJudgeCandidate(
-        candidates,
-        "attack_adjacent_boss",
-        { label: "attack adjacent boss", key: "space" },
-        "Boss marker is adjacent and HP is above the critical retreat threshold."
-      );
-    }
     const bossStep =
       bossEligible && hpRatio > run.tuning.judgeBossHpRatio
         ? this.stepToward(state, ["B"], "adjacent", { blockedChars: ["D", "P"] })
@@ -2600,7 +2560,7 @@ class BotRunner {
           nearestBoss !== undefined &&
           nearestBoss <= run.tuning.earlyBossContactDistance
       );
-    if (hpRatio < run.tuning.judgeRetreatCandidateHpRatio || bossThreatening) {
+    if (!this.isActiveQuestBossFight(run, state) && (hpRatio < run.tuning.judgeRetreatCandidateHpRatio || bossThreatening)) {
       this.addJudgeCandidate(
         candidates,
         "retreat_stuck",
@@ -2850,6 +2810,50 @@ class BotRunner {
       level: run.questBossFailureLevel,
       armorUpgrade: run.questBossFailureArmorUpgrade
     });
+    void this.reviewQuestBossFailureWithStrategyEnsemble(run, state, reason);
+  }
+
+  private async reviewQuestBossFailureWithStrategyEnsemble(
+    run: BotRunState,
+    state: ParsedGameState,
+    reason: "death" | "retreat"
+  ): Promise<void> {
+    if (!run.judgeEnabled || run.judgeConfigs.length === 0 || run.judgeMaxCalls <= 0) {
+      return;
+    }
+    if (run.judgeCalls >= run.judgeMaxCalls) {
+      return;
+    }
+    const apiKey = await readSecretEnv("OPENAI_API_KEY");
+    if (!apiKey) {
+      return;
+    }
+    const callSlots = Math.max(0, run.judgeMaxCalls - run.judgeCalls);
+    const configs = run.judgeConfigs.slice(0, callSlots);
+    if (configs.length === 0) {
+      return;
+    }
+    run.judgeCalls += configs.length;
+    const payload = buildBossFailureStrategyPayload(run, state, reason);
+    const results = await Promise.allSettled(
+      configs.map((config) => callStrategyReviewModel(config, payload, apiKey))
+    );
+    const reviews: StrategyReview[] = [];
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        reviews.push(result.value);
+      } else {
+        this.log("warn", "strategy review model failed", {
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason)
+        });
+      }
+    }
+    if (reviews.length === 0) {
+      return;
+    }
+    const note = summarizeStrategyReviews(reviews);
+    this.addFinding(run, `strategy review: ${note}`);
+    this.log("info", "strategy reviewed boss failure", { reason, reviews });
   }
 
   private clearQuestBossFailureLock(run: BotRunState): void {
@@ -5070,6 +5074,8 @@ function buildJudgePayload(
     objective: "Win TUICraft efficiently while avoiding death, kicks, bans, and needless server load.",
     rules: [
       "Choose exactly one candidate id.",
+      "This is a strategy-layer decision, not a live combat-timing decision.",
+      "Never prefer a combat micro-action, active Shadow Overlord /stuck, reacquire, kite, cooldown, or low-HP finish override.",
       "The acceptedEliteQuest field is authoritative even if the visible dungeon side panel omits quest text.",
       "If questComplete is true, prefer a claim/turn-in candidate over fighting, farming, shopping, or exploration.",
       "If noActiveQuest is true, do not hunt Shadow Overlord unless a new Elite Slayer quest has been accepted.",
@@ -5078,8 +5084,7 @@ function buildJudgePayload(
       `Before level ${tuning.eliteQuestMinLevel}, treat ${tuning.lowLevelSafeTargetHealHpRatio} as the regular-fight HP floor and avoid more than ${tuning.maxAdjacentRegularMobs} adjacent regular mob.`,
       "If the visible regular target HP resets upward or stalls, prefer a reset/heal path over repeatedly attacking the same situation.",
       `Prefer boss progress only when bossEligible is true: accepted Elite Slayer, level at least ${tuning.questBossMinLevel}, weapon upgrade at least ${tuning.questBossMinWeaponUpgrade}, armor upgrade at least ${tuning.questBossMinArmorUpgrade}, Haste level at least ${tuning.questBossMinHasteLevel}, and HP above ${tuning.questBossMinFightHpRatio}.`,
-      `When a selected quest boss is under ${tuning.questBossFinishHpRatio} HP and player HP is above ${tuning.lowHpFinishHpRatio}, prefer a finish candidate over retreat if one is offered.`,
-      `Retreat with /stuck only when HP is below ${tuning.questBossEngagedRetreatHpRatio} while engaged, below ${tuning.questBossPreEngageRetreatHpRatio} before boss contact, below the low-level regular-fight floor, the target is over-level, a boss is adjacent/targeted, multiple mobs are adjacent, target HP has reset/stalled, or no safe progress candidate exists.`,
+      `Retreat with /stuck only for non-active route reset decisions: before boss contact below ${tuning.questBossPreEngageRetreatHpRatio}, below the low-level regular-fight floor, target over-level, multiple mobs adjacent, target HP reset/stalled, or no safe progress candidate exists.`,
       "A distant visible boss is not a retreat reason when safeMobFarming is true.",
       "Do not choose regular mob farming over a visible boss when bossEligible is true, unless HP is below the configured boss threshold.",
       "Do not invent commands or choose an action outside the candidate list."
@@ -5154,6 +5159,63 @@ function buildJudgePayload(
   };
 }
 
+function buildBossFailureStrategyPayload(
+  run: BotRunState,
+  state: ParsedGameState,
+  reason: "death" | "retreat"
+): Record<string, unknown> {
+  const lastBossHp = run.lastQuestBossTargetHp;
+  const lastBossHpRatio = lastBossHp ? lastBossHp.current / lastBossHp.max : undefined;
+  return {
+    objective: "Review a failed TUICraft Shadow Overlord attempt and suggest strategy/config changes only.",
+    rules: [
+      "Do not choose a live input action.",
+      "Do not suggest judge overrides for combat timing.",
+      "Deterministic combat owns kiting, reacquire, low-HP finish, cooldown, and active-fight /stuck decisions.",
+      "Prefer concrete tuning or routing recommendations: farm more levels, change boss gate, route to deeper/shallow depth, or adjust thresholds.",
+      "Return compact JSON with keys recommendation, confidence, and reason."
+    ],
+    failure: {
+      reason,
+      failureCount: run.questBossFailureCount,
+      recordedLevel: run.questBossFailureLevel,
+      recordedArmorUpgrade: run.questBossFailureArmorUpgrade,
+      lastBossHp,
+      lastBossHpRatio
+    },
+    thresholds: {
+      questBossMinLevel: run.tuning.questBossMinLevel,
+      questBossMinFightHpRatio: run.tuning.questBossMinFightHpRatio,
+      questBossPreEngageRetreatHpRatio: run.tuning.questBossPreEngageRetreatHpRatio,
+      questBossEngagedRetreatHpRatio: run.tuning.questBossEngagedRetreatHpRatio,
+      questBossFinishHpRatio: run.tuning.questBossFinishHpRatio,
+      lowHpFinishHpRatio: run.tuning.lowHpFinishHpRatio,
+      savedDepthFarmMaxLevel: run.tuning.savedDepthFarmMaxLevel
+    },
+    currentState: {
+      mapName: state.mapName,
+      mapLevel: state.mapLevel,
+      maxDepth: state.maxDepth,
+      level: state.level,
+      hp: state.hp,
+      mana: state.mana,
+      xp: state.xp,
+      gold: state.gold,
+      weaponUpgrade: state.weaponUpgrade,
+      weaponPower: state.weaponPower,
+      armorUpgrade: state.armorUpgrade,
+      armorValue: state.armorValue,
+      hasteLevel: state.hasteLevel,
+      questInProgress: state.questInProgress,
+      questComplete: state.questComplete,
+      targetName: state.targetName,
+      targetLevel: state.targetLevel,
+      targetHp: state.targetHp,
+      targetText: state.targetText
+    }
+  };
+}
+
 function describeAction(action: BotAction): Record<string, unknown> {
   return {
     label: action.label,
@@ -5174,7 +5236,7 @@ async function callJudgeModel(
       {
         role: "system",
         content:
-          "You are a tactical arbiter for a terminal RPG automation. Optimize for the objective and rules in the user JSON, using decisionContext as the canonical summary. Return only compact JSON with keys choiceId, confidence, and reason. The choiceId must be one of the supplied candidate ids. Keep reason under 12 words."
+          "You are a strategic arbiter for terminal RPG automation. Choose route, farm-vs-boss, and reset decisions only; deterministic code owns live combat timing. Optimize for the objective and rules in the user JSON, using decisionContext as the canonical summary. Return only compact JSON with keys choiceId, confidence, and reason. The choiceId must be one of the supplied candidate ids. Keep reason under 12 words."
       },
       {
         role: "user",
@@ -5211,6 +5273,57 @@ async function callJudgeModel(
     choiceId: vote.choiceId,
     confidence: Math.max(0.1, Math.min(1, vote.confidence)),
     reason: vote.reason
+  };
+}
+
+async function callStrategyReviewModel(
+  config: JudgeConfig,
+  payload: Record<string, unknown>,
+  apiKey: string
+): Promise<StrategyReview> {
+  const body: Record<string, unknown> = {
+    model: config.model,
+    input: [
+      {
+        role: "system",
+        content:
+          "You are a strategic reviewer for terminal RPG automation. Review failed boss attempts and recommend tuning/routing strategy only. Never choose live input actions. Return only compact JSON with keys recommendation, confidence, and reason. Keep recommendation under 16 words and reason under 16 words."
+      },
+      {
+        role: "user",
+        content: JSON.stringify(payload)
+      }
+    ],
+    max_output_tokens: 420
+  };
+  if (config.reasoningEffort) {
+    body.reasoning = { effort: config.reasoningEffort };
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(readIntegerEnv("TUICRAFT_JUDGE_TIMEOUT_MS", 30_000))
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`${config.model} strategy review failed: ${response.status} ${text.slice(0, 400)}`);
+  }
+
+  const parsedResponse = JSON.parse(text) as Record<string, unknown>;
+  const outputText = extractResponseText(parsedResponse);
+  const review = parseStrategyReviewJson(outputText);
+  return {
+    model: config.model,
+    reasoningEffort: config.reasoningEffort,
+    weight: config.weight,
+    recommendation: review.recommendation,
+    confidence: Math.max(0.1, Math.min(1, review.confidence)),
+    reason: review.reason
   };
 }
 
@@ -5251,6 +5364,26 @@ function parseJudgeVoteJson(text: string): { choiceId: string; confidence: numbe
     throw new Error("judge response did not include choiceId");
   }
   return { choiceId, confidence, reason };
+}
+
+function parseStrategyReviewJson(text: string): { recommendation: string; confidence: number; reason?: string } {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+  const recommendation =
+    typeof parsed.recommendation === "string" ? normalizeWhitespace(parsed.recommendation).slice(0, 240) : "";
+  const confidence = typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence) ? parsed.confidence : 0.5;
+  const reason = typeof parsed.reason === "string" ? normalizeWhitespace(parsed.reason).slice(0, 240) : undefined;
+  if (!recommendation) {
+    throw new Error("strategy review did not include recommendation");
+  }
+  return { recommendation, confidence, reason };
+}
+
+function summarizeStrategyReviews(reviews: StrategyReview[]): string {
+  const sorted = [...reviews].sort((a, b) => b.confidence * b.weight - a.confidence * a.weight);
+  const primary = sorted[0];
+  const models = reviews.map((review) => review.model).join(",");
+  return `${primary.recommendation} (${primary.reason ?? "no reason"}; models=${models})`.slice(0, 500);
 }
 
 function chooseJudgeCandidate(votes: JudgeVote[], candidates: JudgeCandidate[]): string {
