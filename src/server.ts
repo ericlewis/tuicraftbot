@@ -1589,6 +1589,7 @@ class BotRunner {
     }
     if (state.questComplete && !this.hasLiveQuestBossContact(state)) {
       run.questComplete = true;
+      this.clearQuestBossFailureLock(run);
     } else if (this.hasLiveQuestBossContact(state)) {
       run.questComplete = false;
     }
@@ -1668,6 +1669,7 @@ class BotRunner {
         if (questStep) {
           return { label: "return to quest board", key: questStep };
         }
+        this.clearQuestBossFailureLock(run);
         run.questComplete = false;
         run.questAccepted = false;
         return { label: "claim quest reward", command: "/quest claim" };
@@ -2813,6 +2815,7 @@ class BotRunner {
   private shouldRecordQuestBossRetreatFailure(run: BotRunState, state: ParsedGameState): boolean {
     return Boolean(
       state.inTown &&
+        !run.questComplete &&
         !state.questComplete &&
         !state.winText &&
         Date.now() - run.lastQuestBossEngagedAt <= 45_000 &&
@@ -2839,6 +2842,12 @@ class BotRunner {
       level: run.questBossFailureLevel,
       armorUpgrade: run.questBossFailureArmorUpgrade
     });
+  }
+
+  private clearQuestBossFailureLock(run: BotRunState): void {
+    run.questBossFailureLevel = undefined;
+    run.questBossFailureArmorUpgrade = undefined;
+    run.questBossFailureUntil = 0;
   }
 
   private isQuestBossFailureLocked(run: BotRunState, state: ParsedGameState): boolean {
