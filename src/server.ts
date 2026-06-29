@@ -1748,7 +1748,7 @@ class BotRunner {
         if (doorAdjacentStep) {
           return { label: "go to saved-depth portal", key: doorAdjacentStep };
         }
-        return { label: "enter saved quest depth", command: "/enter 2" };
+        return this.savedQuestPortalAction(state);
       }
 
       if (/Dungeon Portal|Destination depths|Fargodeep Cave|Jasperlode Mine|Type\s+\/enter\s+\[1-2\]/i.test(state.text)) {
@@ -2696,7 +2696,7 @@ class BotRunner {
         return this.savedDepthFarmPortalAction(run, state);
       }
       if (state.maxDepth && state.maxDepth > 1) {
-        return { label: "enter saved quest depth", command: "/enter 2" };
+        return this.savedQuestPortalAction(state);
       }
       return { label: "enter quest dungeon portal", command: "/enter 1" };
     }
@@ -2714,6 +2714,14 @@ class BotRunner {
     const depth = this.portalDepthForMapLevel(farmMapLevel, state.maxDepth);
     return {
       label: `enter saved dungeon depth ${depth} to farm L${farmMapLevel}`,
+      command: `/enter ${depth}`
+    };
+  }
+
+  private savedQuestPortalAction(state: ParsedGameState): BotAction {
+    const depth = Math.max(2, Math.trunc(state.maxDepth ?? 2));
+    return {
+      label: `enter saved quest depth ${depth}`,
       command: `/enter ${depth}`
     };
   }
