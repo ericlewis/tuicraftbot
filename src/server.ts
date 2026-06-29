@@ -2693,7 +2693,7 @@ class BotRunner {
   }
 
   private portalDepthForMapLevel(mapLevel: number, maxDepth: number | undefined): number {
-    const depth = mapLevel <= 1 ? 1 : Math.floor(mapLevel / 4) + 1;
+    const depth = mapLevel <= 1 ? 1 : Math.max(2, Math.floor(mapLevel / 4) + 1);
     return clampInteger(depth, 1, Math.max(1, maxDepth ?? depth));
   }
 
@@ -2701,7 +2701,17 @@ class BotRunner {
     if (!state.maxDepth || state.maxDepth <= 1) {
       return undefined;
     }
-    return Math.min(state.maxDepth, run.tuning.savedDepthFarmMaxLevel, Math.max(2, state.level - 2));
+    const highestAccessibleMapLevel = this.portalMapLevelForDepth(state.maxDepth);
+    const targetMapLevel = Math.min(
+      highestAccessibleMapLevel,
+      run.tuning.savedDepthFarmMaxLevel,
+      Math.max(2, state.level - 2)
+    );
+    return this.portalMapLevelForDepth(this.portalDepthForMapLevel(targetMapLevel, state.maxDepth));
+  }
+
+  private portalMapLevelForDepth(depth: number): number {
+    return depth <= 1 ? 1 : (depth - 1) * 4;
   }
 
   private shouldTopOffNearLevel(run: BotRunState, state: ParsedGameState): boolean {
